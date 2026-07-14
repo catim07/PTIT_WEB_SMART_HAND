@@ -80,6 +80,20 @@ public class GestureController {
         return contextEngine.predictNextCandidates(history, profile);
     }
 
+    @GetMapping("/samples")
+    public List<GestureSample> getSamples() {
+        return gestureSampleRepository.findAll();
+    }
+
+    @DeleteMapping("/samples/{id}")
+    public ResponseEntity<?> deleteSample(@PathVariable UUID id) {
+        if (!gestureSampleRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        gestureSampleRepository.deleteById(id);
+        return ResponseEntity.ok(Map.of("message", "Xoá mẫu thành công"));
+    }
+
     @PostMapping("/samples")
     public ResponseEntity<?> addSample(@RequestBody GestureSampleRequest req) {
         try {
