@@ -17,4 +17,6 @@ public interface RecognitionLogRepository extends JpaRepository<RecognitionLog, 
     
     @Query("SELECT COUNT(r) FROM RecognitionLog r WHERE r.correct = true")
     long countCorrectRecognitions();
+
+    List<RecognitionLog> findByActualLabel(String actualLabel);
 }

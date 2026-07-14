@@ -60,15 +60,19 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
     private final Map<String, String> sessionContext = new ConcurrentHashMap<>();
     // Map to throttle CPU usage (evaluating every N frames)
     private final Map<String, Integer> sessionFrameCounters = new ConcurrentHashMap<>();
+    // Map to keep track of the sliding window of last N predictions for smoothing (Hysteresis Filter)
+    private final Map<String, List<String>> sessionPredictionHistory = new ConcurrentHashMap<>();
 
     private static final int WINDOW_SIZE = 30; // Max sliding window length
     private static final int RECOGNITION_INTERVAL = 4; // Evaluate every 4 frames (throttling)
+    private static final int FILTER_WINDOW_SIZE = 5; // Hysteresis majority vote window length
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         sessionBuffers.put(session.getId(), new ArrayList<>());
         sessionContext.put(session.getId(), "");
         sessionFrameCounters.put(session.getId(), 0);
+        sessionPredictionHistory.put(session.getId(), new ArrayList<>());
         sendTextMessage(session, Map.of("type", "INFO", "message", "Kết nối WebSocket thành công. Bắt đầu nhận dạng..."));
     }
 
@@ -98,7 +102,13 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
             }
         } else if ("PREV_WORD".equals(type)) {
             String prevWord = (String) payload.get("word");
+            String oldPrevWord = sessionContext.get(session.getId());
             sessionContext.put(session.getId(), prevWord != null ? prevWord.toUpperCase().trim() : "");
+            
+            // Train Markov transitions online automatically in the background if consecutive words exist
+            if (oldPrevWord != null && !oldPrevWord.isEmpty() && prevWord != null && !prevWord.isEmpty()) {
+                contextEngine.trainTransitions(Arrays.asList(oldPrevWord, prevWord.toUpperCase().trim()));
+            }
         } else if ("CLEAR_CONTEXT".equals(type)) {
             sessionContext.put(session.getId(), "");
         } else if ("LEARN_SENTENCE".equals(type)) {
@@ -115,6 +125,7 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
         sessionBuffers.remove(session.getId());
         sessionContext.remove(session.getId());
         sessionFrameCounters.remove(session.getId());
+        sessionPredictionHistory.remove(session.getId());
     }
 
     private void processRecognition(WebSocketSession session, List<Landmark[]> buffer) throws IOException {
@@ -201,6 +212,39 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
         String label = bestProto.getLabel();
         double confidence = bestMatch.getValue();
 
+        // 4b. CCE - Check against dynamic threshold
+        double dynamicThreshold = confidenceCalibrationEngine.getDynamicThreshold(label);
+        if (confidence < dynamicThreshold) {
+            label = "ĐANG PHÂN TÍCH...";
+        }
+
+        // 4c. Hysteresis Filtering (temporal majority voting)
+        List<String> hist = sessionPredictionHistory.get(session.getId());
+        if (hist != null) {
+            hist.add(label);
+            if (hist.size() > FILTER_WINDOW_SIZE) {
+                hist.remove(0);
+            }
+
+            Map<String, Integer> votes = new HashMap<>();
+            for (String l : hist) {
+                votes.put(l, votes.getOrDefault(l, 0) + 1);
+            }
+
+            String smoothedLabel = label;
+            int maxVotes = 0;
+            for (Map.Entry<String, Integer> vote : votes.entrySet()) {
+                if (vote.getValue() > maxVotes) {
+                    maxVotes = vote.getValue();
+                    smoothedLabel = vote.getKey();
+                }
+            }
+
+            if (maxVotes >= 3) {
+                label = smoothedLabel;
+            }
+        }
+
         List<String> topCandidates = new ArrayList<>();
         for (int i = 0; i < Math.min(3, candidateScores.size()); i++) {
             String variantTag = candidateScores.get(i).getKey().getVariantName() != null 
@@ -209,17 +253,24 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
         }
 
         // 5. XDE - Explainable Decision Engine
-        double[] lastInputFrame = inputFeatures[inputFeatures.length - 1];
-        double[] lastProtoFrame = new double[44];
-        try {
-            double[][] protoFeatures = mapper.readValue(bestProto.getFeatureVectors(), double[][].class);
-            lastProtoFrame = protoFeatures[protoFeatures.length - 1];
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        String feedback = "";
+        ExplainabilityEngine.GestureExplanation explanation = null;
 
-        ExplainabilityEngine.GestureExplanation explanation = explainabilityEngine.explainPrediction(lastInputFrame, lastProtoFrame, label, confidence);
-        String feedback = explanation.generalFeedback;
+        if (!"ĐANG PHÂN TÍCH...".equals(label)) {
+            double[] lastInputFrame = inputFeatures[inputFeatures.length - 1];
+            double[] lastProtoFrame = new double[44];
+            try {
+                double[][] protoFeatures = mapper.readValue(bestProto.getFeatureVectors(), double[][].class);
+                lastProtoFrame = protoFeatures[protoFeatures.length - 1];
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            explanation = explainabilityEngine.explainPrediction(lastInputFrame, lastProtoFrame, label, confidence);
+            feedback = explanation.generalFeedback;
+        } else {
+            feedback = "Đang phân tích cử chỉ tay của bạn...";
+        }
 
         // Apply quality warnings
         if (signature.isJittery) {
@@ -237,11 +288,11 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
         response.put("feedback", feedback);
         response.put("candidates", topCandidates);
         response.put("features", inputFeatures);
-        response.put("fingerMatch", explanation.fingerMatchPercentage);
-        response.put("palmMatch", explanation.palmMatchPercentage);
-        response.put("motionMatch", explanation.motionMatchPercentage);
-        response.put("bodyMatch", explanation.bodyMatchPercentage);
-        response.put("trajectoryMatch", explanation.trajectoryMatchPercentage);
+        response.put("fingerMatch", explanation != null ? explanation.fingerMatchPercentage : 0.0);
+        response.put("palmMatch", explanation != null ? explanation.palmMatchPercentage : 0.0);
+        response.put("motionMatch", explanation != null ? explanation.motionMatchPercentage : 0.0);
+        response.put("bodyMatch", explanation != null ? explanation.bodyMatchPercentage : 0.0);
+        response.put("trajectoryMatch", explanation != null ? explanation.trajectoryMatchPercentage : 0.0);
 
         sendTextMessage(session, response);
     }

@@ -5,10 +5,13 @@ import com.signlink.backend.dto.Landmark;
 import com.signlink.backend.model.GesturePrototype;
 import com.signlink.backend.model.GestureSample;
 import com.signlink.backend.model.RecognitionLog;
+import com.signlink.backend.model.UserProfile;
 import com.signlink.backend.repository.GesturePrototypeRepository;
 import com.signlink.backend.repository.GestureSampleRepository;
 import com.signlink.backend.repository.RecognitionLogRepository;
+import com.signlink.backend.repository.UserProfileRepository;
 import com.signlink.backend.engine.LearningEngine;
+import com.signlink.backend.engine.SimilarityEngine;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +28,9 @@ public class OnlineLearningService {
 
     @Autowired
     private RecognitionLogRepository recognitionLogRepository;
+
+    @Autowired
+    private UserProfileRepository userProfileRepository;
 
     @Autowired
     private LearningEngine learningEngine;
@@ -154,6 +160,22 @@ public class OnlineLearningService {
         }
     }
 
+    @Transactional
+    public void adaptUserSpeed(UUID userId, int inputLength) {
+        if (userId == null) return;
+        Optional<UserProfile> opt = userProfileRepository.findById(userId);
+        if (opt.isPresent()) {
+            UserProfile profile = opt.get();
+            double currentSpeed = profile.getGestureSpeedMultiplier() != null ? profile.getGestureSpeedMultiplier() : 1.0;
+            double ratio = (double) inputLength / 30.0;
+            ratio = Math.max(0.5, Math.min(2.0, ratio));
+            double nextSpeed = 0.95 * currentSpeed + 0.05 * ratio;
+            profile.setGestureSpeedMultiplier(nextSpeed);
+            userProfileRepository.save(profile);
+            System.out.println(">>> Adapted user speed multiplier for " + profile.getName() + " to: " + nextSpeed);
+        }
+    }
+
     private double[][] convertToFlatDouble(Landmark[][] landmarks) {
         int n = landmarks.length;
         double[][] flat = new double[n][76 * 4];
@@ -211,13 +233,63 @@ public class OnlineLearningService {
         if (samples.isEmpty()) return;
 
         try {
-            List<double[][]> sampleFeaturesList = new ArrayList<>();
-            for (GestureSample s : samples) {
-                double[][] f = mapper.readValue(s.getFeatureVectors(), double[][].class);
-                sampleFeaturesList.add(resampleFeatures(f, STANDARDIZED_LENGTH));
+            // --- OUTLIER DETECTION & PRUNING ---
+            List<GestureSample> cleanSamples = new ArrayList<>();
+            List<double[][]> cleanFeaturesList = new ArrayList<>();
+            int origNumSamples = samples.size();
+
+            if (origNumSamples >= 4) {
+                double[][] pairwiseDist = new double[origNumSamples][origNumSamples];
+                SimilarityEngine similarityEngine = new SimilarityEngine();
+                
+                double[] meanDists = new double[origNumSamples];
+                double totalDistsSum = 0.0;
+
+                for (int i = 0; i < origNumSamples; i++) {
+                    double[][] featI = resampleFeatures(mapper.readValue(samples.get(i).getFeatureVectors(), double[][].class), STANDARDIZED_LENGTH);
+                    for (int j = i + 1; j < origNumSamples; j++) {
+                        double[][] featJ = resampleFeatures(mapper.readValue(samples.get(j).getFeatureVectors(), double[][].class), STANDARDIZED_LENGTH);
+                        double dist = similarityEngine.computeAdaptiveDtw(featI, featJ, null, 1.0);
+                        pairwiseDist[i][j] = dist;
+                        pairwiseDist[j][i] = dist;
+                    }
+                }
+
+                for (int i = 0; i < origNumSamples; i++) {
+                    double sum = 0.0;
+                    for (int j = 0; j < origNumSamples; j++) {
+                        if (i != j) {
+                            sum += pairwiseDist[i][j];
+                        }
+                    }
+                    meanDists[i] = sum / (origNumSamples - 1);
+                    totalDistsSum += meanDists[i];
+                }
+                double overallAverage = totalDistsSum / origNumSamples;
+
+                for (int i = 0; i < origNumSamples; i++) {
+                    if (meanDists[i] > 1.5 * overallAverage) {
+                        System.out.println(">>> Outlier detected: deleting sample ID: " + samples.get(i).getId() + " for label " + label + " (dist: " + meanDists[i] + " vs avg: " + overallAverage + ")");
+                        gestureSampleRepository.delete(samples.get(i));
+                    } else {
+                        cleanSamples.add(samples.get(i));
+                        double[][] f = mapper.readValue(samples.get(i).getFeatureVectors(), double[][].class);
+                        cleanFeaturesList.add(resampleFeatures(f, STANDARDIZED_LENGTH));
+                    }
+                }
+            } else {
+                cleanSamples.addAll(samples);
+                for (GestureSample s : samples) {
+                    double[][] f = mapper.readValue(s.getFeatureVectors(), double[][].class);
+                    cleanFeaturesList.add(resampleFeatures(f, STANDARDIZED_LENGTH));
+                }
             }
 
+            samples = cleanSamples;
+            List<double[][]> sampleFeaturesList = cleanFeaturesList;
             int numSamples = sampleFeaturesList.size();
+            if (numSamples == 0) return;
+
             int finalK = Math.min(K, numSamples);
 
             List<double[][]> centroids = new ArrayList<>();
@@ -286,8 +358,11 @@ public class OnlineLearningService {
 
                 int closestSampleIdx = 0;
                 double minDistance = Double.MAX_VALUE;
+                
+                List<double[][]> samplesInCluster = new ArrayList<>();
                 for (int i = 0; i < numSamples; i++) {
                     if (assignments[i] == k) {
+                        samplesInCluster.add(sampleFeaturesList.get(i));
                         double dist = euclideanDistance(sampleFeaturesList.get(i), centroid);
                         if (dist < minDistance) {
                             minDistance = dist;
@@ -297,8 +372,44 @@ public class OnlineLearningService {
                 }
 
                 GestureSample closestSample = samples.get(closestSampleIdx);
-                double[] defaultWeights = new double[44];
-                Arrays.fill(defaultWeights, 1.0);
+
+                // --- FEATURE-WISE VARIANCE WEIGHT LEARNING ---
+                double[] featureWeights = new double[44];
+                if (!samplesInCluster.isEmpty()) {
+                    double[] variances = new double[44];
+                    for (int d = 0; d < 44; d++) {
+                        double varSum = 0.0;
+                        for (double[][] f : samplesInCluster) {
+                            for (int t = 0; t < STANDARDIZED_LENGTH; t++) {
+                                double diff = f[t][d] - centroid[t][d];
+                                varSum += diff * diff;
+                            }
+                        }
+                        variances[d] = varSum / (samplesInCluster.size() * STANDARDIZED_LENGTH);
+                    }
+
+                    double sumRaw = 0.0;
+                    double[] rawWeights = new double[44];
+                    for (int d = 0; d < 44; d++) {
+                        rawWeights[d] = Math.exp(-5.0 * variances[d]);
+                        sumRaw += rawWeights[d];
+                    }
+
+                    if (sumRaw > 0.0) {
+                        double finalSum = 0.0;
+                        for (int d = 0; d < 44; d++) {
+                            featureWeights[d] = Math.max(0.1, 44.0 * (rawWeights[d] / sumRaw));
+                            finalSum += featureWeights[d];
+                        }
+                        for (int d = 0; d < 44; d++) {
+                            featureWeights[d] = 44.0 * (featureWeights[d] / finalSum);
+                        }
+                    } else {
+                        Arrays.fill(featureWeights, 1.0);
+                    }
+                } else {
+                    Arrays.fill(featureWeights, 1.0);
+                }
 
                 GesturePrototype proto = new GesturePrototype();
                 proto.setId(UUID.randomUUID());
@@ -312,7 +423,7 @@ public class OnlineLearningService {
                 proto.setVersion(1);
                 proto.setParentId(null);
                 proto.setVariantName(k > 0 ? "Variant " + (k + 1) : null);
-                proto.setFeatureWeights(mapper.writeValueAsString(defaultWeights));
+                proto.setFeatureWeights(mapper.writeValueAsString(featureWeights));
 
                 gesturePrototypeRepository.save(proto);
             }

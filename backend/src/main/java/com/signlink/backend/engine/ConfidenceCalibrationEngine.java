@@ -1,10 +1,18 @@
 package com.signlink.backend.engine;
 
 import com.signlink.backend.model.GesturePrototype;
+import com.signlink.backend.model.RecognitionLog;
+import com.signlink.backend.repository.RecognitionLogRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import java.util.ArrayList;
+import java.util.List;
 
 @Component
 public class ConfidenceCalibrationEngine {
+
+    @Autowired
+    private RecognitionLogRepository recognitionLogRepository;
 
     /**
      * Calibrates gesture recognition confidence using dynamic characteristics.
@@ -36,5 +44,42 @@ public class ConfidenceCalibrationEngine {
                              + (0.15 * stability);
 
         return Math.max(0.0, Math.min(1.0, rawConfidence));
+    }
+
+    /**
+     * Compute a gesture-specific dynamic acceptance threshold based on historical logs of correct executions.
+     */
+    public double getDynamicThreshold(String label) {
+        if (label == null) return 0.60;
+        List<RecognitionLog> logs = recognitionLogRepository.findByActualLabel(label.toUpperCase().trim());
+        
+        List<Double> correctConfidences = new ArrayList<>();
+        for (RecognitionLog log : logs) {
+            if (log.getCorrect() != null && log.getCorrect()) {
+                correctConfidences.add(log.getConfidence());
+            }
+        }
+
+        if (correctConfidences.size() < 5) {
+            return 0.60; // Default baseline threshold for new/unrefined gestures
+        }
+
+        double sum = 0.0;
+        for (double c : correctConfidences) {
+            sum += c;
+        }
+        double mean = sum / correctConfidences.size();
+
+        double varSum = 0.0;
+        for (double c : correctConfidences) {
+            varSum += Math.pow(c - mean, 2);
+        }
+        double stdDev = Math.sqrt(varSum / correctConfidences.size());
+
+        // Dynamic threshold = mean - 1.8 * stdDev
+        double threshold = mean - 1.8 * stdDev;
+        
+        // Clamp threshold to a safe operating range [0.45, 0.85]
+        return Math.max(0.45, Math.min(0.85, threshold));
     }
 }

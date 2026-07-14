@@ -14,9 +14,12 @@ public class SimilarityEngine {
         int m = template.length;
         if (n == 0 || m == 0) return Double.MAX_VALUE;
 
-        // 1. Sakoe-Chiba constraint band width
+        // 1. Sakoe-Chiba constraint band width (optimizes search window dynamically)
         double baseW = Math.max(3.0, Math.max(n, m) * 0.12);
-        int w = (int) Math.round(baseW * Math.max(0.5, Math.min(2.5, speedMultiplier)));
+        double lengthRatio = (double) Math.abs(n - m) / Math.max(1, Math.max(n, m));
+        double adaptiveFactor = 0.6 + 0.4 * lengthRatio; // Shrinks search space if sequences have similar lengths
+        int w = (int) Math.round(baseW * Math.max(0.5, Math.min(2.5, speedMultiplier * adaptiveFactor)));
+        w = Math.max(2, w); // Ensure a minimum band width of 2 to avoid path blocking
 
         double[][] dtw = new double[n + 1][m + 1];
         for (int i = 0; i <= n; i++) {

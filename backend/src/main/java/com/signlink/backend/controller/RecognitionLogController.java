@@ -48,6 +48,8 @@ public class RecognitionLogController {
                         req.getFeatureVectors(),
                         req.getLandmarksSequence()
                 );
+                // Dynamically learn and adapt user speed multiplier based on this correct gesture's length
+                onlineLearningService.adaptUserSpeed(log.getUserId(), req.getFeatureVectors().length);
             }
         } else if (req.getCorrect() != null && !req.getCorrect()) {
             // Trigger rollback of the faulty predicted template and apply a weight penalty

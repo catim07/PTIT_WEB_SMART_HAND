@@ -1,0 +1,16 @@
+{
+  "name": "ptit-web-smart-hand",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SignLink AI Root Runner",
+  "scripts": {
+    "install-all": "npm install && npm install --prefix frontend",
+    "backend": "cross-env JAVA_HOME=\"C:\\Program Files\\JetBrains\\IntelliJ IDEA 2024.3.2.2\\jbr\" cmd /c \"cd backend && mvnw.cmd package -DskipTests && java -jar target/backend-0.0.1-SNAPSHOT.jar\"",
+    "frontend": "npm run dev --prefix frontend",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\""
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3"
+  }
+}

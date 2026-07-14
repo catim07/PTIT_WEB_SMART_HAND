@@ -29,7 +29,37 @@ public class FeatureEngine {
         GestureSignature signature = new GestureSignature();
         int length = leftHandSeq.size();
         
-        // 1. Data Quality and Completeness check
+        // 1. Dominant Hand Detection (determines which hand is active/moving more across the sequence)
+        double leftDistSum = 0.0;
+        double rightDistSum = 0.0;
+        int leftActiveCount = 0;
+        int rightActiveCount = 0;
+
+        for (int t = 0; t < length; t++) {
+            Landmark[] left = leftHandSeq.get(t);
+            Landmark[] right = rightHandSeq.get(t);
+            if (left != null && left.length == 21 && isHandActive(left)) {
+                leftActiveCount++;
+                if (t > 0 && leftHandSeq.get(t - 1) != null && leftHandSeq.get(t - 1).length == 21 && isHandActive(leftHandSeq.get(t - 1))) {
+                    leftDistSum += distance3d(left[0], leftHandSeq.get(t - 1)[0]);
+                }
+            }
+            if (right != null && right.length == 21 && isHandActive(right)) {
+                rightActiveCount++;
+                if (t > 0 && rightHandSeq.get(t - 1) != null && rightHandSeq.get(t - 1).length == 21 && isHandActive(rightHandSeq.get(t - 1))) {
+                    rightDistSum += distance3d(right[0], rightHandSeq.get(t - 1)[0]);
+                }
+            }
+        }
+
+        boolean rightHandDominant = true;
+        if (rightActiveCount != leftActiveCount) {
+            rightHandDominant = rightActiveCount > leftActiveCount;
+        } else if (rightDistSum != leftDistSum) {
+            rightHandDominant = rightDistSum > leftDistSum;
+        }
+
+        // 2. Data Quality and Completeness check
         int totalFrames = Math.max(1, length);
         int validHandFrames = 0;
         double totalJitter = 0.0;
@@ -44,7 +74,10 @@ public class FeatureEngine {
             Landmark[] pose = poseSeq.get(t);
             Landmark[] face = faceSeq.get(t);
 
-            Landmark[] activeHand = (rightHand != null && rightHand.length == 21 && isHandActive(rightHand)) ? rightHand : leftHand;
+            boolean rightActive = (rightHand != null && rightHand.length == 21 && isHandActive(rightHand));
+            boolean leftActive = (leftHand != null && leftHand.length == 21 && isHandActive(leftHand));
+            
+            Landmark[] activeHand = rightHandDominant ? (rightActive ? rightHand : leftHand) : (leftActive ? leftHand : rightHand);
             boolean handPresent = (activeHand != null && activeHand.length == 21 && isHandActive(activeHand));
             if (handPresent) {
                 validHandFrames++;
