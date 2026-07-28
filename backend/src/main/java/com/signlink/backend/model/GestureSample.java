@@ -1,32 +1,30 @@
 package com.signlink.backend.model;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
 import java.util.UUID;
 
-@Entity
-@Table(name = "gesture_samples")
+@Document(collection = "gesture_samples")
 public class GestureSample {
+
     @Id
     private UUID id;
 
-    @Column(name = "user_id", nullable = false)
+    @Field("user_id")
     private UUID userId;
 
-    @Column(nullable = false)
     private String label;
 
-    @Lob
-    @Column(name = "feature_vectors", nullable = false, columnDefinition = "CLOB")
-    private String featureVectors; // Double[][] serialized as JSON: [ [f1, f2, ...], [f1, f2, ...], ... ]
+    @Field("feature_vectors")
+    private String featureVectors; // Double[][] serialized as JSON
 
-    @Lob
-    @Column(name = "landmarks_sequence", nullable = false, columnDefinition = "CLOB")
-    private String landmarksSequence; // Landmark[][] serialized as JSON: [ [ {x, y, z, v}, ... ], ... ]
+    @Field("landmarks_sequence")
+    private String landmarksSequence; // Landmark[][] serialized as JSON
 
-    @Column(nullable = false)
     private Double weight = 1.0;
 
-    @Column(name = "created_at", nullable = false)
+    @Field("created_at")
     private Long createdAt;
 
     public GestureSample() {

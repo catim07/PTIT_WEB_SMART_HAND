@@ -1,28 +1,27 @@
 package com.signlink.backend.model;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
 import java.util.UUID;
 
-@Entity
-@Table(name = "user_profiles")
+@Document(collection = "user_profiles")
 public class UserProfile {
+
     @Id
     private UUID id;
 
-    @Column(nullable = false)
     private String name;
 
-    @Column(name = "hand_size")
+    @Field("hand_size")
     private Double handSize = 1.0;
 
-    @Column(name = "gesture_speed_multiplier")
+    @Field("gesture_speed_multiplier")
     private Double gestureSpeedMultiplier = 1.0;
 
-    @Lob
-    @Column(columnDefinition = "CLOB")
-    private String habits; // stored as JSON string: e.g., preferred motion amplitude, error rates
+    private String habits; // stored as JSON string
 
-    @Column(name = "created_at", nullable = false)
+    @Field("created_at")
     private Long createdAt;
 
     public UserProfile() {

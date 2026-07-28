@@ -1,26 +1,26 @@
 package com.signlink.backend.model;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
 
-@Entity
-@Table(name = "transition_probabilities", uniqueConstraints = {
-    @UniqueConstraint(columnNames = {"prev_label", "curr_label"})
-})
+@Document(collection = "transition_probabilities")
+@CompoundIndex(name = "prev_curr_idx", def = "{'prevLabel': 1, 'currLabel': 1}", unique = true)
 public class TransitionProbability {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
 
-    @Column(name = "prev_label", nullable = false)
+    @Id
+    private String id;
+
+    @Field("prev_label")
     private String prevLabel;
 
-    @Column(name = "curr_label", nullable = false)
+    @Field("curr_label")
     private String currLabel;
 
-    @Column(name = "transition_count", nullable = false)
+    @Field("transition_count")
     private Integer transitionCount = 1;
 
-    @Column(nullable = false)
     private Double probability = 0.0;
 
     public TransitionProbability() {
@@ -34,11 +34,11 @@ public class TransitionProbability {
     }
 
     // Getters and Setters
-    public Long getId() {
+    public String getId() {
         return id;
     }
 
-    public void setId(Long id) {
+    public void setId(String id) {
         this.id = id;
     }
 

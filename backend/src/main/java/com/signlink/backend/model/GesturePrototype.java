@@ -1,48 +1,44 @@
 package com.signlink.backend.model;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
 import java.util.UUID;
 
-@Entity
-@Table(name = "gesture_prototypes")
+@Document(collection = "gesture_prototypes")
 public class GesturePrototype {
+
     @Id
     private UUID id;
 
-    @Column(nullable = false)
     private String label;
 
-    @Column(name = "user_id")
+    @Field("user_id")
     private UUID userId; // NULL for global templates, or specific UUID if personalized adapted template
 
-    @Lob
-    @Column(name = "feature_vectors", nullable = false, columnDefinition = "CLOB")
-    private String featureVectors; // Double[][] serialized as JSON: [ [f1, f2, ...], [f1, f2, ...], ... ] (resampled to 30 frames)
+    @Field("feature_vectors")
+    private String featureVectors; // Double[][] serialized as JSON
 
-    @Lob
-    @Column(name = "landmarks_sequence", nullable = false, columnDefinition = "CLOB")
-    private String landmarksSequence; // Landmark[][] serialized as JSON (closest actual sample for natural skeleton render)
+    @Field("landmarks_sequence")
+    private String landmarksSequence; // Landmark[][] serialized as JSON
 
-    @Column(name = "sample_count")
+    @Field("sample_count")
     private Integer sampleCount = 1;
 
-    @Column(nullable = false)
     private Double weight = 1.0;
 
-    @Column(name = "updated_at", nullable = false)
+    @Field("updated_at")
     private Long updatedAt;
 
-    @Column(name = "version", nullable = false)
     private Integer version = 1;
 
-    @Column(name = "parent_id")
+    @Field("parent_id")
     private UUID parentId;
 
-    @Column(name = "variant_name")
+    @Field("variant_name")
     private String variantName;
 
-    @Lob
-    @Column(name = "feature_weights", columnDefinition = "CLOB")
+    @Field("feature_weights")
     private String featureWeights; // double[] weights for 44 features in JSON format
 
     public GesturePrototype() {

@@ -1,30 +1,29 @@
 package com.signlink.backend.model;
 
-import jakarta.persistence.*;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
 import java.util.UUID;
 
-@Entity
-@Table(name = "recognition_logs")
+@Document(collection = "recognition_logs")
 public class RecognitionLog {
+
     @Id
     private UUID id;
 
-    @Column(name = "user_id", nullable = false)
+    @Field("user_id")
     private UUID userId;
 
-    @Column(name = "predicted_label", nullable = false)
+    @Field("predicted_label")
     private String predictedLabel;
 
-    @Column(name = "actual_label", nullable = false)
+    @Field("actual_label")
     private String actualLabel;
 
-    @Column(nullable = false)
     private Double confidence;
 
-    @Column(nullable = false)
     private Boolean correct;
 
-    @Column(nullable = false)
     private Long timestamp;
 
     public RecognitionLog() {

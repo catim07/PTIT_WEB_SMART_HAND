@@ -23,9 +23,6 @@ export function drawHandSkeleton(
   height: number,
   isRec: boolean
 ): void {
-  // Reset and clear the canvas (or the client can handle clearing)
-  ctx.clearRect(0, 0, width, height);
-
   if (!landmarks || landmarks.length !== 21) return;
 
   // Set line styles for skeleton bones

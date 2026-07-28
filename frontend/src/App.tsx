@@ -96,8 +96,8 @@ function App() {
   const isRecordingRef = useRef(isRecording);
   const avatarCanvasRef = useRef<HTMLCanvasElement>(null);
   const avatarIntervalRef = useRef<number | null>(null);
-  const recognitionRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const wsCounterRef = useRef<number>(0);
 
   // Update recording reference
   useEffect(() => {
@@ -494,7 +494,8 @@ function App() {
       fullFrame.push({ x: 0, y: 0, z: 0, visibility: 0 });
     }
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    wsCounterRef.current += 1;
+    if (wsCounterRef.current % 2 === 0 && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'FRAME',
         landmarks: fullFrame
@@ -861,7 +862,11 @@ function App() {
           <div className="glass-panel prediction-banner glow-primary">
             <div className="prediction-display">
               <span className="prediction-label">Cử chỉ nhận dạng được</span>
-              <span className="prediction-value">{prediction}</span>
+              <span className="prediction-value" style={{ fontSize: activeLandmarks && prediction === 'KHÔNG PHÁT HIỆN TAY' ? '22px' : undefined }}>
+                {activeLandmarks && prediction === 'KHÔNG PHÁT HIỆN TAY'
+                  ? (samples.length === 0 ? 'ĐÃ PHÁT HIỆN TAY (HÃY HUẤN LUYỆN CỬ CHỈ ĐẦU TIÊN)' : 'ĐÃ BẮT ĐƯỢC TAY (ĐANG PHÂN TÍCH...)')
+                  : prediction}
+              </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
