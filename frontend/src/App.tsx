@@ -21,6 +21,9 @@ import { HandCamera } from './components/HandCamera';
 import { GestureTrainer } from './components/GestureTrainer';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { ControlPanel } from './components/ControlPanel';
+import { SmartSentenceBuilder } from './components/SmartSentenceBuilder';
+import { QuickCommunicationCards } from './components/QuickCommunicationCards';
+import { LiveChatHub, type ChatMessage } from './components/LiveChatHub';
 
 import { type Landmark, type GestureSample, type GestureTemplate, type SystemSettings, type RecognitionStats } from './types';
 import { extractFeatures } from './utils/algorithm';
@@ -81,6 +84,23 @@ function App() {
   
   // SOS & Emergency Mode State
   const [sosActive, setSosActive] = useState<boolean>(false);
+  
+  // Smart 2-Way Live Chat State
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [mainViewTab, setMainViewTab] = useState<'WORKSPACE' | 'LIVE_CHAT'>('WORKSPACE');
+
+  const addChatMessage = useCallback((text: string, sender: 'DEAF' | 'HEARING', signKeyword?: string) => {
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        sender,
+        text,
+        signKeyword,
+        timestamp: Date.now(),
+      },
+    ]);
+  }, []);
   
   // Correction modal state
   const [showCorrectionModal, setShowCorrectionModal] = useState<boolean>(false);
@@ -798,6 +818,22 @@ function App() {
 
         <div className="system-status">
           <button 
+            className={`btn ${mainViewTab === 'WORKSPACE' ? 'btn-primary' : 'btn-secondary'} btn-small`} 
+            onClick={() => setMainViewTab('WORKSPACE')}
+            style={{ marginRight: '8px', fontWeight: 'bold' }}
+          >
+            🏠 Dịch Cử Chỉ & Huấn Luyện
+          </button>
+
+          <button 
+            className={`btn ${mainViewTab === 'LIVE_CHAT' ? 'btn-primary' : 'btn-secondary'} btn-small`} 
+            onClick={() => setMainViewTab('LIVE_CHAT')}
+            style={{ marginRight: '12px', fontWeight: 'bold' }}
+          >
+            💬 Hội Thoại 2 Chiều (Live Chat)
+          </button>
+
+          <button 
             className={`btn ${developerMode ? 'btn-primary' : 'btn-secondary'} btn-small`} 
             onClick={() => setDeveloperMode(!developerMode)}
             style={{ marginRight: '10px', fontWeight: 'bold', border: '1px solid var(--color-primary)' }}
@@ -833,7 +869,17 @@ function App() {
       </header>
 
       {/* Main Content Dashboard */}
-      <main className="dashboard-grid">
+      {mainViewTab === 'LIVE_CHAT' ? (
+        <main style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+          <LiveChatHub
+            messages={chatMessages}
+            onSendMessage={(text, sender, keyword) => addChatMessage(text, sender, keyword)}
+            onSpeak={speakText}
+            templates={templates}
+          />
+        </main>
+      ) : (
+        <main className="dashboard-grid">
         {/* Left Column: Webcam & Live Translations */}
         <section className="main-view-column">
           {/* Webcam view */}
@@ -1237,57 +1283,30 @@ function App() {
             </div>
           )}
 
-          {/* Sentence Builder */}
-          <div className="glass-panel sentence-builder-panel">
-            <h2 className="section-title" style={{ marginBottom: '10px' }}>
-              <Keyboard size={18} />
-              BỘ BIÊN DỊCH CÂU KÝ HIỆU
-            </h2>
-            
-            {lockInProgress > 0 && (
-              <div style={{ marginBottom: '12px' }}>
-                <div className="confidence-label" style={{ fontSize: '11px', color: 'var(--color-secondary)' }}>
-                  <span>Đang khóa cử chỉ...</span>
-                  <span>{Math.round(lockInProgress)}%</span>
-                </div>
-                <div className="progress-bar-container" style={{ height: '4px', marginTop: '4px' }}>
-                  <div className="progress-bar-fill" style={{ width: `${lockInProgress}%`, background: 'var(--color-accent)' }} />
-                </div>
-              </div>
-            )}
+          {/* Smart Sentence Builder (NLP & Predictive Context) */}
+          <SmartSentenceBuilder
+            sentence={sentence}
+            onClear={handleClearSentence}
+            onBackspace={handleBackspace}
+            onAddWord={(word) => {
+              setSentence(prev => [...prev, word]);
+              speakText(word.toLowerCase());
+            }}
+            onSpeak={speakText}
+            onSendToChat={(text) => addChatMessage(text, 'DEAF')}
+            candidates={candidates}
+          />
 
-            <div className="sentence-area">
-              {sentence.length === 0 ? (
-                <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '15px' }}>
-                  Các cử chỉ sẽ được biên dịch và nối thành câu tại đây...
-                </span>
-              ) : (
-                sentence.map((word, idx) => (
-                  <span key={idx} className={word === ' ' ? '' : 'sentence-word'}>
-                    {word === ' ' ? '\u00A0' : word}
-                  </span>
-                ))
-              )}
-            </div>
-
-            <div className="sentence-actions">
-              <button className="btn btn-secondary btn-small" onClick={handleAddSpace}>
-                <Space size={14} />
-                Dấu cách
-              </button>
-              <button className="btn btn-secondary btn-small" onClick={handleBackspace} disabled={sentence.length === 0}>
-                <CornerDownLeft size={14} />
-                Xóa từ
-              </button>
-              <button className="btn btn-secondary btn-small" onClick={handleTriggerSpeakSentence} disabled={sentence.length === 0}>
-                <Volume2 size={14} />
-                Phát âm thanh
-              </button>
-              <button className="btn btn-danger btn-small" onClick={handleClearSentence} disabled={sentence.length === 0}>
-                <Trash2 size={14} />
-                Xóa câu
-              </button>
-            </div>
+          {/* Quick Communication Cards (1-Tap Emergency & Everyday Actions) */}
+          <div style={{ marginTop: '16px' }}>
+            <QuickCommunicationCards
+              onSelectCard={(keyword, speech) => {
+                setSentence(prev => [...prev, keyword]);
+                speakText(speech);
+                addChatMessage(speech, 'DEAF', keyword);
+              }}
+              onTriggerAnimation={triggerAvatarReplay}
+            />
           </div>
         </section>
 
@@ -1471,6 +1490,7 @@ function App() {
           )}
         </section>
       </main>
+      )}
 
       {/* Correction Feedback Modal */}
       {showCorrectionModal && (
