@@ -1,10 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Camera as CameraIcon,
-  AlertTriangle,
   Loader2,
   Play,
-  RefreshCw,
   Settings,
   Monitor,
   CheckCircle2,
@@ -512,7 +510,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           )}
 
           <div style={{ background: 'rgba(15, 23, 42, 0.6)', borderRadius: '10px', padding: '12px', marginBottom: '14px', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ display: 'flex', gap: '6px', borderBottom: '1px solid rgba(255,255,255,0.1)', pb: '8px', marginBottom: '10px' }}>
+            <div style={{ display: 'flex', gap: '6px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px', marginBottom: '10px' }}>
               <button
                 className={`btn btn-small ${activeTab === 'CHROME' ? 'btn-primary' : 'btn-secondary'}`}
                 onClick={() => setActiveTab('CHROME')}
