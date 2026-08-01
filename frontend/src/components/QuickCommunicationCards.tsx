@@ -1,14 +1,7 @@
 import React, { useState } from 'react';
 import { 
-  HeartPulse, 
-  Utensils, 
-  Navigation, 
-  MessageCircle, 
   Volume2, 
-  Play, 
-  Sparkles,
-  ShieldAlert,
-  PhoneCall
+  Sparkles
 } from 'lucide-react';
 
 interface QuickCard {
@@ -72,7 +65,7 @@ export const QuickCommunicationCards: React.FC<QuickCommunicationCardsProps> = (
       </div>
 
       {/* Category Tabs */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', overflowX: 'auto', pb: '4px' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', overflowX: 'auto', paddingBottom: '4px' }}>
         <button 
           className={`btn btn-small ${activeTab === 'ALL' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('ALL')}
@@ -132,7 +125,7 @@ export const QuickCommunicationCards: React.FC<QuickCommunicationCardsProps> = (
               transition: 'all 0.2s ease',
               display: 'flex',
               flexDirection: 'column',
-              justify: 'space-between',
+              justifyContent: 'space-between',
               gap: '8px'
             }}
             className="quick-card-item"

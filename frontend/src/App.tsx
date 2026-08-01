@@ -1,16 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  Keyboard, 
-  Trash2, 
-  Space, 
-  CornerDownLeft, 
   Cpu, 
   Wifi, 
   WifiOff,
   Mic,
   MicOff,
   Play,
-  Volume2,
   AlertTriangle,
   Info,
   RotateCcw,
@@ -118,6 +113,7 @@ function App() {
   const avatarIntervalRef = useRef<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const wsCounterRef = useRef<number>(0);
+  const recognitionRef = useRef<any>(null);
 
   // Update recording reference
   useEffect(() => {
@@ -767,19 +763,6 @@ function App() {
       wsRef.current.send(JSON.stringify({ type: 'CLEAR_CONTEXT' }));
     }
   };
-  const handleAddSpace = () => setSentence(prev => [...prev, ' ']);
-  
-  const handleTriggerSpeakSentence = () => {
-    if (sentence.length === 0) return;
-    const words = sentence.filter(w => w.trim() !== '');
-    speakText(words.join(' '));
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'LEARN_SENTENCE',
-        words: words
-      }));
-    }
-  };
 
   // Trigger manual rollback on a specific label from developer view
   const triggerManualRollback = async (label: string) => {
@@ -927,6 +910,18 @@ function App() {
                   <div className="progress-bar-fill" style={{ width: `${confidence * 100}%` }} />
                 </div>
               </div>
+
+              {lockInProgress > 0 && (
+                <div style={{ width: '100%', marginTop: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--color-primary)', marginBottom: '2px' }}>
+                    <span>Đang tự động xác nhận câu...</span>
+                    <span>{Math.round(lockInProgress)}%</span>
+                  </div>
+                  <div style={{ height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                    <div style={{ width: `${lockInProgress}%`, height: '100%', background: 'linear-gradient(90deg, var(--color-primary), #00ff88)', transition: 'width 0.15s ease' }} />
+                  </div>
+                </div>
+              )}
 
               {/* Confirm / Reject Buttons on the main screen */}
               {prediction !== 'KHÔNG PHÁT HIỆN TAY' && prediction !== 'ĐANG PHÂN TÍCH...' && (

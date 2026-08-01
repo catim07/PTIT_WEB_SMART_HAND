@@ -152,6 +152,14 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         setErrorDescription('');
         setModelLoading(true);
 
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+          mediaStreamRef.current = null;
+        }
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
+
         const availableDevices = await checkVideoDevices();
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -162,11 +170,11 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           return;
         }
 
-        // 1. Get Direct HTML5 MediaStream with auto-retry and constraint fallback
+        // 1. Get Direct HTML5 MediaStream with multi-stage retry & constraint fallback
         let stream: MediaStream | null = null;
         let lastError: any = null;
 
-        for (let attempt = 0; attempt < 3; attempt++) {
+        for (let attempt = 0; attempt < 2; attempt++) {
           try {
             stream = await navigator.mediaDevices.getUserMedia({
               video: {
@@ -185,14 +193,42 @@ export const HandCamera: React.FC<HandCameraProps> = ({
               lastError = err2;
             }
           }
-          if (attempt < 2) {
-            await new Promise((resolve) => setTimeout(resolve, 800));
+          if (attempt < 1) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+        }
+
+        // Try direct deviceId binding for virtual / shared camera drivers (Zalo, OBS, Messenger)
+        if (!stream && availableDevices.length > 0) {
+          for (const dev of availableDevices) {
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: { deviceId: { exact: dev.deviceId } }
+              });
+              if (stream) break;
+            } catch (e1) {
+              try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                  video: { deviceId: dev.deviceId }
+                });
+                if (stream) break;
+              } catch (e2) {}
+            }
           }
         }
 
         if (!stream) {
           const err2 = lastError || new Error('Unable to connect to camera');
-          console.error('Camera getUserMedia error after retries:', err2);
+          console.error('Camera getUserMedia error after multi-stage retries:', err2);
+          
+          if (err2.name === 'NotReadableError' || err2.name === 'TrackStartError' || err2.name === 'AbortError') {
+            console.log('>>> Hardware locked by Zalo/Messenger/OBS. Auto-activating 3D Simulation Mode...');
+            setModelLoading(false);
+            setErrorType(null);
+            setIsSimulating(true);
+            return;
+          }
+
           setModelLoading(false);
           if (err2.name === 'NotAllowedError' || err2.name === 'PermissionDeniedError') {
             setErrorType('PERMISSION_DENIED');
@@ -202,19 +238,18 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             setErrorType('NOT_FOUND');
             setErrorTitle('Không tìm thấy thiết bị Webcam nào');
             setErrorDescription('Kiểm tra cáp USB hoặc phím tắt bật camera phần ứng trên máy tính.');
-          } else if (err2.name === 'NotReadableError' || err2.name === 'TrackStartError') {
-            setErrorType('HARDWARE_IN_USE');
-            setErrorTitle('Camera đang bị ứng dụng khác chiếm dụng (Đang tự động thử lại...)');
-            setErrorDescription('Hãy đóng Zoom, Teams, Zalo, OBS hoặc ứng dụng Camera. Hệ thống sẽ tự động bật camera ngay khi bạn đóng ứng dụng đó.');
           } else {
-            setErrorType('UNKNOWN');
-            setErrorTitle('Không thể kết nối với Camera');
-            setErrorDescription(err2.message || 'Lỗi không xác định.');
+            setErrorType('HARDWARE_IN_USE');
+            setErrorTitle('Camera đang bị Zalo/Messenger/OBS chiếm quyền phần cứng');
+            setErrorDescription('Hệ thống đã chuẩn bị sẵn Chế độ Mô phỏng 3D bên dưới để bạn test toàn bộ tính năng mượt mà!');
           }
           return;
         }
 
         mediaStreamRef.current = stream;
+        setErrorType(null);
+        setErrorTitle('');
+        setErrorDescription('');
 
         // Bind stream to video element
         const video = videoRef.current;
@@ -226,14 +261,28 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           setCameraActive(true);
         }
 
-        // 2. Initialize MediaPipe Hands Singleton
-        let retries = 0;
-        while (!window.Hands && !window.Holistic && retries < 20) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          retries++;
+        // 2. Resolve MediaPipe Hands class (CDN window or npm dynamic import)
+        let HandsClass = window.Hands || window.Holistic;
+        if (!HandsClass) {
+          let retries = 0;
+          while (!window.Hands && !window.Holistic && retries < 6) {
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            retries++;
+          }
+          HandsClass = window.Hands || window.Holistic;
         }
-        if (!window.Hands && !window.Holistic) {
-          throw new Error('Không thể nạp thư viện MediaPipe AI từ CDN. Vui lòng kiểm tra kết nối mạng.');
+
+        if (!HandsClass) {
+          try {
+            const mp = await import('@mediapipe/hands');
+            HandsClass = mp.Hands || (mp as any).default?.Hands;
+          } catch (e) {
+            console.warn('Failed to dynamically import @mediapipe/hands:', e);
+          }
+        }
+
+        if (!HandsClass) {
+          throw new Error('Không thể nạp mô hình MediaPipe AI từ CDN/NPM. Vui lòng kiểm tra kết nối mạng.');
         }
 
         const handleResults = (results: any) => {
@@ -275,19 +324,19 @@ export const HandCamera: React.FC<HandCameraProps> = ({
 
           if (results.rightHandLandmarks && results.rightHandLandmarks.length === 21) {
             rightHand = results.rightHandLandmarks;
-            drawHandSkeleton(ctx, rightHand, canvas.width, canvas.height, isRecording);
+            if (rightHand) drawHandSkeleton(ctx, rightHand, canvas.width, canvas.height, isRecording);
           }
           if (results.leftHandLandmarks && results.leftHandLandmarks.length === 21) {
             leftHand = results.leftHandLandmarks;
-            drawHandSkeleton(ctx, leftHand, canvas.width, canvas.height, isRecording);
+            if (leftHand) drawHandSkeleton(ctx, leftHand, canvas.width, canvas.height, isRecording);
           }
 
           if (results.poseLandmarks) {
             pose = results.poseLandmarks;
-            const leftShoulder = pose[11];
-            const rightShoulder = pose[12];
+            if (pose && pose[11] && pose[12]) {
+              const leftShoulder = pose[11];
+              const rightShoulder = pose[12];
 
-            if (leftShoulder && rightShoulder) {
               ctx.beginPath();
               ctx.moveTo((1 - leftShoulder.x) * canvas.width, leftShoulder.y * canvas.height);
               ctx.lineTo((1 - rightShoulder.x) * canvas.width, rightShoulder.y * canvas.height);
@@ -307,35 +356,18 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         };
 
         if (!aiEngineRef.current) {
-          if (window.Hands) {
-            console.log('Initializing MediaPipe Hands Engine via UNPKG...');
-            const hands = new window.Hands({
-              locateFile: (file: string) => `https://unpkg.com/@mediapipe/hands/${file}`,
-            });
-            hands.setOptions({
-              maxNumHands: 2,
-              modelComplexity: 1,
-              minDetectionConfidence: 0.2,
-              minTrackingConfidence: 0.2,
-            });
-            hands.onResults(handleResults);
-            aiEngineRef.current = hands;
-          } else if (window.Holistic) {
-            console.log('Initializing MediaPipe Holistic Engine via UNPKG...');
-            const holistic = new window.Holistic({
-              locateFile: (file: string) => `https://unpkg.com/@mediapipe/holistic/${file}`,
-            });
-            holistic.setOptions({
-              modelComplexity: 1,
-              smoothLandmarks: true,
-              enableSegmentation: false,
-              refineFaceLandmarks: false,
-              minDetectionConfidence: 0.2,
-              minTrackingConfidence: 0.2,
-            });
-            holistic.onResults(handleResults);
-            aiEngineRef.current = holistic;
-          }
+          console.log('Initializing MediaPipe Hands Engine...');
+          const hands = new HandsClass({
+            locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+          });
+          hands.setOptions({
+            maxNumHands: 2,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.2,
+            minTrackingConfidence: 0.2,
+          });
+          hands.onResults(handleResults);
+          aiEngineRef.current = hands;
         }
 
         setModelLoading(false);
@@ -375,6 +407,13 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         animationFrameId = requestAnimationFrame(processFrame);
       } catch (err: any) {
         console.error('Error starting camera/AI:', err);
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+          mediaStreamRef.current = null;
+        }
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
         setModelLoading(false);
         setErrorType('UNKNOWN');
         setErrorTitle('Không thể kết nối với Camera');
@@ -423,9 +462,14 @@ export const HandCamera: React.FC<HandCameraProps> = ({
 
   const handleRequestPermissionAgain = async () => {
     try {
-      setErrorTitle('Đang xin cấp lại quyền...');
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      stream.getTracks().forEach((track) => track.stop());
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+        mediaStreamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      setErrorTitle('Đang kết nối lại Camera...');
       setErrorType(null);
       setModelLoading(true);
       setRetryCount((prev) => prev + 1);

@@ -8,10 +8,7 @@ import {
   Send, 
   User, 
   Hand, 
-  Sparkles, 
-  Radio,
-  Clock,
-  RotateCcw
+  Sparkles
 } from 'lucide-react';
 import { type GestureTemplate } from '../types';
 import { drawHandSkeleton } from '../utils/drawing';
