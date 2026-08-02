@@ -214,7 +214,8 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
 
         // 4b. CCE - Check against dynamic threshold
         double dynamicThreshold = confidenceCalibrationEngine.getDynamicThreshold(label);
-        if (confidence < dynamicThreshold) {
+        boolean isLowConfidence = confidence < dynamicThreshold;
+        if (isLowConfidence) {
             label = "ĐANG PHÂN TÍCH...";
         }
 
@@ -240,7 +241,7 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
                 }
             }
 
-            if (maxVotes >= 3) {
+            if (maxVotes >= 3 && !isLowConfidence) {
                 label = smoothedLabel;
             }
         }

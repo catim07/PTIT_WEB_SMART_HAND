@@ -21,7 +21,7 @@ import { QuickCommunicationCards } from './components/QuickCommunicationCards';
 import { LiveChatHub, type ChatMessage } from './components/LiveChatHub';
 
 import { type Landmark, type GestureSample, type GestureTemplate, type SystemSettings, type RecognitionStats } from './types';
-import { extractFeatures, countExtendedFingers, detectDualHandGesture, resetEMAFilter } from './utils/algorithm';
+import { extractFeatures, countExtendedFingers, resetEMAFilter } from './utils/algorithm';
 import { drawHandSkeleton } from './utils/drawing';
 import * as api from './utils/api';
 
@@ -122,23 +122,30 @@ function App() {
   const lastSpokenTextRef = useRef<string>('');
   const lastSpokenTimeRef = useRef<number>(0);
 
-  // Helper to check if two gesture labels are semantic synonyms (e.g. SO_5 and HI)
+  // Helper to check if two gesture labels are semantic synonyms
   const isSynonymGesture = (w1: string, w2: string) => {
     if (!w1 || !w2) return false;
     if (w1 === w2) return true;
-    const greetings = ['SO_5', 'HI', 'HELLO', 'XIN_CHAO', 'XIN_CHÀO'];
+    const greetings = ['HI', 'HELLO', 'XIN_CHAO', 'XIN_CHÀO'];
     if (greetings.includes(w1) && greetings.includes(w2)) return true;
     return false;
   };
 
   // Streamlined instant sentence builder for real-time continuous gesture stream
   const tryAppendWordToSentence = useCallback((rawLabel: string) => {
-    if (!rawLabel || rawLabel === 'ĐANG PHÂN TÍCH...' || rawLabel === 'KHÔNG PHÁT HIỆN TAY' || rawLabel === 'CHƯA CÓ DỮ LIỆU') {
+    if (
+      !rawLabel || 
+      rawLabel === 'ĐANG PHÂN TÍCH...' || 
+      rawLabel === 'KHÔNG PHÁT HIỆN TAY' || 
+      rawLabel === 'CHƯA CÓ DỮ LIỆU' ||
+      rawLabel === 'KHÔNG XÁC ĐỊNH' ||
+      rawLabel.startsWith('SO_')
+    ) {
       return;
     }
 
     const cleanLabel = rawLabel.split(' ')[0].split('(')[0].trim().toUpperCase();
-    if (!cleanLabel) return;
+    if (!cleanLabel || cleanLabel.startsWith('SO_')) return;
 
     const now = Date.now();
     const last = lastAppendedWordRef.current;
@@ -298,7 +305,15 @@ function App() {
             setRawFeatures(data.features || null);
 
             // Streamlined zero-latency continuous sentence builder
-            if (finalLabel !== 'ĐANG PHÂN TÍCH...' && finalLabel !== 'CHƯA CÓ DỮ LIỆU' && finalLabel !== 'KHÔNG PHÁT HIỆN TAY') {
+            const minConf = settings?.minConfidence || 0.60;
+            if (
+              avgConfidence >= minConf &&
+              finalLabel !== 'ĐANG PHÂN TÍCH...' && 
+              finalLabel !== 'CHƯA CÓ DỮ LIỆU' && 
+              finalLabel !== 'KHÔNG PHÁT HIỆN TAY' &&
+              finalLabel !== 'KHÔNG XÁC ĐỊNH' &&
+              !finalLabel.startsWith('SO_')
+            ) {
               if (finalLabel === 'SOS') {
                 if (!sosActive) {
                   setSosActive(true);
@@ -495,14 +510,20 @@ function App() {
     setConfidence(0.88);
 
     // 2. Hysteresis stability check: Require 3 consecutive stable frames (~90ms) before sentence lock-in
-    if (activeGestureLabelRef.current === fingerInfo.label) {
-      gestureStableCounterRef.current += 1;
-      if (gestureStableCounterRef.current === 3) {
-        tryAppendWordToSentence(fingerInfo.label);
+    // Ignore raw finger count heuristics (SO_0..SO_5) for sentence auto-appending
+    if (fingerInfo.label && !fingerInfo.label.startsWith('SO_')) {
+      if (activeGestureLabelRef.current === fingerInfo.label) {
+        gestureStableCounterRef.current += 1;
+        if (gestureStableCounterRef.current === 3) {
+          tryAppendWordToSentence(fingerInfo.label);
+        }
+      } else {
+        activeGestureLabelRef.current = fingerInfo.label;
+        gestureStableCounterRef.current = 1;
       }
     } else {
-      activeGestureLabelRef.current = fingerInfo.label;
-      gestureStableCounterRef.current = 1;
+      activeGestureLabelRef.current = '';
+      gestureStableCounterRef.current = 0;
     }
 
     const fWindow = featureWindowRef.current;
@@ -550,7 +571,7 @@ function App() {
     if (pose && pose[0]) {
       fullFrame.push({ x: pose[0].x, y: pose[0].y, z: pose[0].z, visibility: 1 });
     } else {
-      fullFrame.push({ x: 0, y: 0, z: 0, visibility: 0 });
+      for (let i = 0; i < 1; i++) fullFrame.push({ x: 0, y: 0, z: 0, visibility: 0 });
     }
 
     wsCounterRef.current += 1;
@@ -575,6 +596,9 @@ function App() {
     lockInTargetLabelRef.current = null;
     lockInCounterRef.current = 0;
     setLockInProgress(0);
+
+    activeGestureLabelRef.current = '';
+    gestureStableCounterRef.current = 0;
   }, []);
 
   const saveBurstSequence = async () => {
