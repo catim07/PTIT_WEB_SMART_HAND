@@ -63,9 +63,9 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
     // Map to keep track of the sliding window of last N predictions for smoothing (Hysteresis Filter)
     private final Map<String, List<String>> sessionPredictionHistory = new ConcurrentHashMap<>();
 
-    private static final int WINDOW_SIZE = 30; // Max sliding window length
-    private static final int RECOGNITION_INTERVAL = 4; // Evaluate every 4 frames (throttling)
-    private static final int FILTER_WINDOW_SIZE = 5; // Hysteresis majority vote window length
+    private static final int WINDOW_SIZE = 15; // Max sliding window length
+    private static final int RECOGNITION_INTERVAL = 2; // Evaluate every 2 frames (ultra fast)
+    private static final int FILTER_WINDOW_SIZE = 3; // Hysteresis majority vote window length
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
@@ -95,7 +95,7 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
                     int count = sessionFrameCounters.getOrDefault(session.getId(), 0) + 1;
                     sessionFrameCounters.put(session.getId(), count);
 
-                    if (buffer.size() == WINDOW_SIZE && count % RECOGNITION_INTERVAL == 0) {
+                    if (buffer.size() >= 5 && count % RECOGNITION_INTERVAL == 0) {
                         processRecognition(session, buffer);
                     }
                 }

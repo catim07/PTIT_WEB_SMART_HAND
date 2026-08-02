@@ -1,6 +1,36 @@
 import { type Landmark, type GestureTemplate } from '../types';
 
 /**
+ * Exponential Moving Average (EMA) Landmark Smoother to reduce camera jitter & noise.
+ */
+let prevSmoothedLandmarks: Landmark[] | null = null;
+
+export function resetEMAFilter(): void {
+  prevSmoothedLandmarks = null;
+}
+
+export function filterLandmarksEMA(landmarks: Landmark[], alpha = 0.85): Landmark[] {
+  if (!landmarks || landmarks.length === 0) return [];
+  if (!prevSmoothedLandmarks || prevSmoothedLandmarks.length !== landmarks.length) {
+    prevSmoothedLandmarks = landmarks.map(l => ({ ...l }));
+    return landmarks;
+  }
+
+  const smoothed = landmarks.map((l, i) => {
+    const prev = prevSmoothedLandmarks![i];
+    return {
+      x: alpha * l.x + (1 - alpha) * prev.x,
+      y: alpha * l.y + (1 - alpha) * prev.y,
+      z: alpha * l.z + (1 - alpha) * (prev.z || 0),
+      visibility: l.visibility
+    };
+  });
+
+  prevSmoothedLandmarks = smoothed;
+  return smoothed;
+}
+
+/**
  * Calculates Euclidean distance between two 3D landmarks
  */
 export function getDistance3D(p1: Landmark, p2: Landmark): number {
@@ -25,38 +55,41 @@ export function getVectorDistance(v1: number[], v2: number[]): number {
 
 /**
  * Normalizes raw hand and pose landmarks to be translation, scale, and position invariant,
- * extracting hand shapes and relative coordinates to the face.
+ * extracting hand shapes, relative coordinates to the face, and dual-hand spatial vectors.
  */
 export function extractFeatures(
   handLandmarks: Landmark[] | null,
-  poseLandmarks: Landmark[] | null
+  poseLandmarks: Landmark[] | null,
+  secondHandLandmarks?: Landmark[] | null
 ): {
   normalizedCoords: Landmark[];
   featureVector: number[];
 } {
-  // If hand is not detected, we cannot extract meaningful gesture features
+  // If main hand is not detected, we cannot extract meaningful gesture features
   if (!handLandmarks || handLandmarks.length !== 21) {
     return { normalizedCoords: [], featureVector: [] };
   }
 
-  const wrist = handLandmarks[0];
+  // Apply EMA smoothing to main hand
+  const smoothedHand = filterLandmarksEMA(handLandmarks);
+  const wrist = smoothedHand[0];
 
   // 1. Hand Coordinate Translation Invariance (Relative to Wrist)
-  const shifted: Landmark[] = handLandmarks.map(l => ({
+  const shifted: Landmark[] = smoothedHand.map(l => ({
     x: l.x - wrist.x,
     y: l.y - wrist.y,
     z: l.z - wrist.z
   }));
 
   // 2. Scale Invariance (Relative to distance L0 -> L9 middle base)
-  const scale = getDistance3D(handLandmarks[0], handLandmarks[9]) || 0.1;
+  const scale = getDistance3D(smoothedHand[0], smoothedHand[9]) || 0.1;
   const normalizedCoords: Landmark[] = shifted.map(l => ({
     x: l.x / scale,
     y: l.y / scale,
     z: l.z / scale
   }));
 
-  // 3. Feature Vector Generation (81 dimensions)
+  // 3. Feature Vector Generation (84 dimensions including dual-hand fusion)
   const featureVector: number[] = [];
 
   // A. Hand joint coordinates (21 joints * 3 = 63 features)
@@ -78,11 +111,8 @@ export function extractFeatures(
   }
 
   // D. Relative Hand Position to Face (3 features)
-  // Essential to distinguish: "LIKE" (hand near chest) from "UONG_NUOC" (hand near mouth)
-  // Landmark 0 of pose is the Nose (serves as a proxy for the mouth/face center)
   if (poseLandmarks && poseLandmarks[0]) {
     const nose = poseLandmarks[0];
-    // Vector from nose to hand wrist, normalized by body scale (distance between shoulders L11 and L12)
     const bodyScale = (poseLandmarks[11] && poseLandmarks[12]) 
       ? getDistance3D(poseLandmarks[11], poseLandmarks[12]) || 0.3
       : 0.3;
@@ -93,7 +123,22 @@ export function extractFeatures(
       (wrist.z - nose.z) / bodyScale
     );
   } else {
-    // Fallback if pose not tracked
+    featureVector.push(0, 0, 0);
+  }
+
+  // E. Dual-Hand Spatial Feature Fusion (3 features)
+  if (secondHandLandmarks && secondHandLandmarks.length === 21) {
+    const wrist2 = secondHandLandmarks[0];
+    const bodyScale = (poseLandmarks && poseLandmarks[11] && poseLandmarks[12])
+      ? getDistance3D(poseLandmarks[11], poseLandmarks[12]) || 0.3
+      : 0.3;
+
+    featureVector.push(
+      (wrist.x - wrist2.x) / bodyScale,
+      (wrist.y - wrist2.y) / bodyScale,
+      (wrist.z - wrist2.z) / bodyScale
+    );
+  } else {
     featureVector.push(0, 0, 0);
   }
 
@@ -242,8 +287,8 @@ export function adaptSequenceTemplate(
 }
 
 /**
- * Checks for specific posture issues in comparison to template (Grammarly for gestures).
- * Returns helpful textual recommendations if errors are found.
+ * Comprehensive Real-Time Posture Coach (Grammarly Cho Cử Chỉ V2).
+ * Evaluates posture geometry, elevation, finger extension, and orientation for 11+ gestures.
  */
 export function diagnoseGestureError(
   label: string,
@@ -252,53 +297,206 @@ export function diagnoseGestureError(
 ): string | null {
   if (inputSequence.length === 0 || landmarksSequence.length === 0) return null;
 
+  const lastFrameLandmarks = landmarksSequence[landmarksSequence.length - 1];
+
+  // 1. UONG_NUOC (Drinking water): Hand raised near mouth/face
   if (label === 'UONG_NUOC') {
-    // Check if the hand actually reaches the mouth/face level.
-    // The relative Y of the hand relative to the nose is in the last 3 elements of the feature vector.
-    // If relative Y is positive (in MediaPipe, positive Y is downwards), it means hand was below nose.
-    // Let's check the minimum Y (highest position reached by hand).
     let minRelY = Infinity;
     for (const vec of inputSequence) {
-      const relY = vec[vec.length - 2]; // Y relative coordinate is second to last
+      const relY = vec[vec.length - 5] !== undefined ? vec[vec.length - 5] : vec[vec.length - 2];
       if (relY < minRelY) minRelY = relY;
     }
-
-    // If minRelY is too large, the hand didn't go high enough (should go near 0 or negative relative to nose)
-    if (minRelY > 0.4) {
-      return 'Mẹo cử chỉ "Uống Nước": Bạn cần đưa bàn tay lên cao hơn sát gần miệng để biểu đạt đúng.';
+    if (minRelY > 0.35) {
+      return 'Mẹo cử chỉ "Uống Nước": Bạn cần đưa bàn tay lên cao sát miệng hơn.';
     }
   }
 
-  if (label === 'HELLO') {
-    // wave hello: requires palm to be extended, check if fingers are open
-    // We can evaluate average tip-to-wrist distances in the feature vector.
-    // Tip-to-wrist normalized distances are at index 63 to 67.
+  // 2. HELLO / TAM_BIET (Wave Goodbye/Hello): Extended fingers & hand high near shoulder/head
+  if (label === 'HELLO' || label === 'TAM_BIET') {
     let avgTipDistSum = 0;
     for (const vec of inputSequence) {
       const tips = vec.slice(63, 68);
-      const avgTips = tips.reduce((s, v) => s + v, 0) / 5;
+      const avgTips = tips.reduce((s, v) => s + v, 0) / (tips.length || 1);
       avgTipDistSum += avgTips;
     }
     const finalAvgTipDist = avgTipDistSum / inputSequence.length;
 
-    // Open hand has larger distances (typically > 1.2 normalized). Closed fist is < 0.8
     if (finalAvgTipDist < 1.0) {
-      return 'Mẹo cử chỉ "Chào Bạn": Hãy mở rộng các ngón tay và xòe lòng bàn tay ra khi vẫy chào.';
+      return `Mẹo cử chỉ "${label === 'HELLO' ? 'Chào Bạn' : 'Tạm Biệt'}": Hãy mở rộng các ngón tay và xòe lòng bàn tay ra.`;
     }
   }
 
+  // 3. SOS (Emergency): High elevation & crossed posture
   if (label === 'SOS') {
-    // SOS gesture is crossed hands. Let's make sure the hand is held high near head/chest level.
     let avgRelY = 0;
     for (const vec of inputSequence) {
-      avgRelY += vec[vec.length - 2];
+      avgRelY += vec[vec.length - 5] !== undefined ? vec[vec.length - 5] : vec[vec.length - 2];
     }
     avgRelY /= inputSequence.length;
 
-    if (avgRelY > 0.8) {
-      return 'Mẹo cử chỉ khẩn cấp "SOS": Bạn cần giữ tay cao hơn ở vị trí trước ngực hoặc ngang vai.';
+    if (avgRelY > 0.7) {
+      return 'Mẹo cử chỉ khẩn cấp "SOS": Hãy giữ tay cao hơn ở vị trí trước ngực hoặc ngang vai.';
+    }
+  }
+
+  // 4. LIKE (Thumbs Up): Thumb pointing upwards
+  if (label === 'LIKE') {
+    if (lastFrameLandmarks && lastFrameLandmarks.length === 21) {
+      const thumbTip = lastFrameLandmarks[4];
+      const indexTip = lastFrameLandmarks[8];
+      if (thumbTip.y >= indexTip.y) {
+        return 'Mẹo cử chỉ "LIKE": Hãy hướng ngón tay cái thẳng đứng lên trên.';
+      }
+    }
+  }
+
+  // 5. DISLIKE (Thumbs Down): Thumb pointing downwards
+  if (label === 'DISLIKE') {
+    if (lastFrameLandmarks && lastFrameLandmarks.length === 21) {
+      const thumbTip = lastFrameLandmarks[4];
+      const wrist = lastFrameLandmarks[0];
+      if (thumbTip.y <= wrist.y) {
+        return 'Mẹo cử chỉ "DISLIKE": Hãy quay ngón cái chúi thẳng xuống đất.';
+      }
+    }
+  }
+
+  // 6. CAM_ON (Thank you): Flat open palm near chest/chin
+  if (label === 'CAM_ON') {
+    if (lastFrameLandmarks && lastFrameLandmarks.length === 21) {
+      const wrist = lastFrameLandmarks[0];
+      const middleTip = lastFrameLandmarks[12];
+      const len = getDistance3D(wrist, middleTip);
+      if (len < 0.2) {
+        return 'Mẹo cử chỉ "Cảm Ơn": Duỗi thẳng lòng bàn tay chạm nhẹ hướng về phía trước.';
+      }
+    }
+  }
+
+  // 7. XIN_LOI (Sorry): Closed fist near chest
+  if (label === 'XIN_LOI') {
+    if (lastFrameLandmarks && lastFrameLandmarks.length === 21) {
+      const wrist = lastFrameLandmarks[0];
+      const middleTip = lastFrameLandmarks[12];
+      const len = getDistance3D(wrist, middleTip);
+      if (len > 0.35) {
+        return 'Mẹo cử chỉ "Xin Lỗi": Nắm nhẹ bàn tay lại thành hình nắm đấm trước ngực.';
+      }
+    }
+  }
+
+  // 8. OK (Okay sign): Thumb and index tips touching
+  if (label === 'OK') {
+    if (lastFrameLandmarks && lastFrameLandmarks.length === 21) {
+      const thumbTip = lastFrameLandmarks[4];
+      const indexTip = lastFrameLandmarks[8];
+      const dist = getDistance3D(thumbTip, indexTip);
+      if (dist > 0.08) {
+        return 'Mẹo cử chỉ "OK": Chạm đầu ngón cái và ngón trỏ vào nhau tạo thành hình tròn.';
+      }
+    }
+  }
+
+  // 9. YEU_THUONG (Love): I Love You hand sign (Thumb, Index, Pinky extended)
+  if (label === 'YEU_THUONG') {
+    if (lastFrameLandmarks && lastFrameLandmarks.length === 21) {
+      const wrist = lastFrameLandmarks[0];
+      const indexTip = lastFrameLandmarks[8];
+      const pinkyTip = lastFrameLandmarks[20];
+      const middleTip = lastFrameLandmarks[12];
+
+      const indexLen = getDistance3D(wrist, indexTip);
+      const pinkyLen = getDistance3D(wrist, pinkyTip);
+      const middleLen = getDistance3D(wrist, middleTip);
+
+      if (indexLen < 0.2 || pinkyLen < 0.2 || middleLen > 0.25) {
+        return 'Mẹo cử chỉ "Yêu Thương": Giữ duỗi ngón trỏ, ngón út và ngón cái; gập ngón giữa và ngón áp út lại.';
+      }
+    }
+  }
+
+  // 10. GIUP_DOI (Help): Open palm facing up
+  if (label === 'GIUP_DOI') {
+    if (lastFrameLandmarks && lastFrameLandmarks.length === 21) {
+      const wrist = lastFrameLandmarks[0];
+      const middleTip = lastFrameLandmarks[12];
+      if (middleTip.y > wrist.y + 0.1) {
+        return 'Mẹo cử chỉ "Giúp Đỡ": Đưa ngửa lòng bàn tay hướng lên phía trước.';
+      }
     }
   }
 
   return null;
+}
+
+/**
+ * Accurately counts extended fingers (0 to 5) from 21 MediaPipe hand landmarks
+ * using 3D skeletal geometry and joint angle thresholds.
+ */
+export function countExtendedFingers(handLandmarks: Landmark[]): { count: number; label: string; details: string } {
+  if (!handLandmarks || handLandmarks.length !== 21) {
+    return { count: 0, label: 'SO_0', details: 'SO_0 (Nắm Tay)' };
+  }
+
+  const wrist = handLandmarks[0];
+  const thumbTip = handLandmarks[4];
+  const indexTip = handLandmarks[8];
+  const middleTip = handLandmarks[12];
+  const ringTip = handLandmarks[16];
+  const pinkyTip = handLandmarks[20];
+
+  // For non-thumb fingers (Index: 8, Middle: 12, Ring: 16, Pinky: 20):
+  // Compare 3D Euclidean distance from Wrist to Tip vs Wrist to PIP joint.
+  const isIndexOpen = getDistance3D(indexTip, wrist) > getDistance3D(handLandmarks[6], wrist) * 1.12;
+  const isMiddleOpen = getDistance3D(middleTip, wrist) > getDistance3D(handLandmarks[10], wrist) * 1.12;
+  const isRingOpen = getDistance3D(ringTip, wrist) > getDistance3D(handLandmarks[14], wrist) * 1.12;
+  const isPinkyOpen = getDistance3D(pinkyTip, wrist) > getDistance3D(handLandmarks[18], wrist) * 1.12;
+
+  // 1. BAN_TIM (Finger Heart 🫰): Thumb Tip (4) and Index Tip (8) pinched close (<0.08 in 3D) while Middle/Ring/Pinky are folded
+  const thumbIndexDist = getDistance3D(thumbTip, indexTip);
+  if (thumbIndexDist < 0.085 && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+    return { count: 2, label: 'BAN_TIM', details: 'BAN_TIM (Bắn Tim 🫰)' };
+  }
+
+  // 2. LIKE (Thích 👍): Thumb UP + Index/Middle/Ring/Pinky folded
+  const thumbMcp = handLandmarks[2];
+  const thumbDist = getDistance3D(thumbTip, handLandmarks[17]);
+  const thumbBaseDist = getDistance3D(thumbMcp, handLandmarks[17]);
+  const isThumbOpen = thumbDist > thumbBaseDist * 1.15;
+
+  if (isThumbOpen && !isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen && thumbTip.y < thumbMcp.y) {
+    return { count: 1, label: 'LIKE', details: 'LIKE (Thích 👍)' };
+  }
+
+  // 3. OK (Đồng ý 👌): Thumb Tip (4) and Index Tip (8) pinched in circle + Middle, Ring, Pinky extended open
+  if (thumbIndexDist < 0.085 && isMiddleOpen && isRingOpen && isPinkyOpen) {
+    return { count: 3, label: 'OK', details: 'OK (Đồng Ý 👌)' };
+  }
+
+  // 4. LOVE_YOU (Bắn Tim I Love You 🤟): Thumb, Index, Pinky extended + Middle & Ring folded
+  if (isIndexOpen && isPinkyOpen && !isMiddleOpen && !isRingOpen) {
+    return { count: 3, label: 'LOVE_YOU', details: 'LOVE_YOU (Yêu Bạn 🤟)' };
+  }
+
+  let count = 0;
+  if (isThumbOpen) count++;
+  if (isIndexOpen) count++;
+  if (isMiddleOpen) count++;
+  if (isRingOpen) count++;
+  if (isPinkyOpen) count++;
+
+  const labelMap: Record<number, string> = {
+    0: 'SO_0 (Nắm Tay)',
+    1: 'SO_1 (1 Ngón - Số 1)',
+    2: 'SO_2 (2 Ngón - Số 2)',
+    3: 'SO_3 (3 Ngón - Số 3)',
+    4: 'SO_4 (4 Ngón - Số 4)',
+    5: 'SO_5 (5 Ngón - Số 5)',
+  };
+
+  return {
+    count,
+    label: `SO_${count}`,
+    details: labelMap[count] || `SO_${count} (Số ${count})`,
+  };
 }

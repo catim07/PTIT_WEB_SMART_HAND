@@ -108,7 +108,7 @@ public class FeatureEngine {
         signature.completenessScore = (double) validHandFrames / totalFrames;
         signature.averageVelocity = totalJitter / totalFrames;
         signature.peakAcceleration = maxAccel;
-        signature.isJittery = (maxSpeed > 8.0 || maxAccel > 45.0); // Outlier physical limits threshold
+        signature.isJittery = (maxSpeed > 50.0 || maxAccel > 500.0); // Realistic physical threshold
 
         // Resample features to standard size (30 frames)
         double[][] rawFeatures = features.toArray(new double[0][0]);

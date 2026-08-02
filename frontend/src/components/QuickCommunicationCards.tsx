@@ -1,14 +1,7 @@
 import React, { useState } from 'react';
 import { 
-  HeartPulse, 
-  Utensils, 
-  Navigation, 
-  MessageCircle, 
   Volume2, 
-  Play, 
-  Sparkles,
-  ShieldAlert,
-  PhoneCall
+  Sparkles
 } from 'lucide-react';
 
 interface QuickCard {
@@ -33,18 +26,24 @@ const QUICK_CARDS: QuickCard[] = [
 
   // Daily Needs
   { id: 'daily_1', category: 'DAILY', title: 'Xin Một Cốc Nước', signKeyword: 'UONG_NUOC', fullSpeech: 'Cho tôi xin một cốc nước uống, tôi đang rất khát.', icon: '🥛' },
-  { id: 'daily_2', category: 'DAILY', title: 'Muốn Ăn Cơm', signKeyword: 'UONG_NUOC', fullSpeech: 'Tôi muốn tìm chỗ ăn cơm hoặc mua đồ ăn.', icon: '🍚' },
-  { id: 'daily_3', category: 'DAILY', title: 'Cần Trợ Giúp', signKeyword: 'HELLO', fullSpeech: 'Bạn có thể dành ít phút giúp đỡ tôi được không?', icon: '🤝' },
+  { id: 'daily_2', category: 'DAILY', title: 'Muốn Ăn Cơm', signKeyword: 'AN_COM', fullSpeech: 'Tôi muốn tìm chỗ ăn cơm hoặc mua đồ ăn.', icon: '🍚' },
+  { id: 'daily_3', category: 'DAILY', title: 'Cần Trợ Giúp', signKeyword: 'GIUP_DO', fullSpeech: 'Bạn có thể dành ít phút giúp đỡ tôi được không?', icon: '🤝' },
+  { id: 'daily_4', category: 'DAILY', title: 'Đi Học / Đi Làm', signKeyword: 'DI_HOC', fullSpeech: 'Tôi chuẩn bị đi học và đi làm.', icon: '🏫' },
+  { id: 'daily_5', category: 'DAILY', title: 'Về Nhà', signKeyword: 'VE_NHA', fullSpeech: 'Bây giờ tôi muốn xin phép đi về nhà.', icon: '🏡' },
 
   // Travel
   { id: 'travel_1', category: 'TRAVEL', title: 'Tôi Bị Lạc Đường', signKeyword: 'SOS', fullSpeech: 'Tôi là người khiếm thính và tôi đang bị lạc đường, xin chỉ giúp tôi.', icon: '🗺️' },
   { id: 'travel_2', category: 'TRAVEL', title: 'Nhà Vệ Sinh Ở Đâu?', signKeyword: 'HELLO', fullSpeech: 'Xin hỏi nhà vệ sinh gần nhất ở đâu ạ?', icon: '🚻' },
   { id: 'travel_3', category: 'TRAVEL', title: 'Gọi Xe Ô Tô / Taxi', signKeyword: 'HELLO', fullSpeech: 'Giúp tôi gọi một chuyến xe taxi hoặc Grab với.', icon: '🚖' },
 
-  // Greeting
+  // Greeting & Feeling
   { id: 'greet_1', category: 'GREETING', title: 'Xin Chào Rất Vui Gặp Bạn', signKeyword: 'HELLO', fullSpeech: 'Xin chào bạn! Rất vui được gặp bạn hôm nay.', icon: '👋' },
-  { id: 'greet_2', category: 'GREETING', title: 'Cảm Ơn Rất Nhiều', signKeyword: 'LIKE', fullSpeech: 'Cảm ơn sự hỗ trợ nhiệt tình của bạn rất nhiều!', icon: '🙏' },
-  { id: 'greet_3', category: 'GREETING', title: 'Tôi Là Người Khiếm Thính', signKeyword: 'HELLO', fullSpeech: 'Tôi là người khiếm thính, tôi giao tiếp qua cử chỉ tay và ứng dụng SignLink AI.', icon: '🤟' },
+  { id: 'greet_2', category: 'GREETING', title: 'Cảm Ơn Rất Nhiều', signKeyword: 'CAM_ON', fullSpeech: 'Cảm ơn sự hỗ trợ nhiệt tình của bạn rất nhiều!', icon: '🙏' },
+  { id: 'greet_3', category: 'GREETING', title: 'Xin Lỗi Bạn', signKeyword: 'XIN_LOI', fullSpeech: 'Xin lỗi bạn vì sự bất tiện này.', icon: '🙇' },
+  { id: 'greet_4', category: 'GREETING', title: 'Tạm Biệt', signKeyword: 'TAM_BIET', fullSpeech: 'Tạm biệt bạn, hẹn gặp lại lần sau nhé!', icon: '🖐️' },
+  { id: 'greet_5', category: 'GREETING', title: 'Tôi Yêu Bạn (Bắn Tim)', signKeyword: 'BAN_TIM', fullSpeech: 'Tôi rất quý mến và yêu bạn!', icon: '🫰' },
+  { id: 'greet_6', category: 'GREETING', title: 'Tuyệt Vời / Thích (Like)', signKeyword: 'LIKE', fullSpeech: 'Cử chỉ này thật tuyệt vời, tôi rất thích!', icon: '👍' },
+  { id: 'greet_7', category: 'GREETING', title: 'Tôi Là Người Khiếm Thính', signKeyword: 'HELLO', fullSpeech: 'Tôi là người khiếm thính, tôi giao tiếp qua cử chỉ tay và ứng dụng SignLink AI.', icon: '🤟' },
 ];
 
 export const QuickCommunicationCards: React.FC<QuickCommunicationCardsProps> = ({
@@ -72,7 +71,7 @@ export const QuickCommunicationCards: React.FC<QuickCommunicationCardsProps> = (
       </div>
 
       {/* Category Tabs */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', overflowX: 'auto', pb: '4px' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', overflowX: 'auto', paddingBottom: '4px' }}>
         <button 
           className={`btn btn-small ${activeTab === 'ALL' ? 'btn-primary' : 'btn-secondary'}`}
           onClick={() => setActiveTab('ALL')}
@@ -132,7 +131,7 @@ export const QuickCommunicationCards: React.FC<QuickCommunicationCardsProps> = (
               transition: 'all 0.2s ease',
               display: 'flex',
               flexDirection: 'column',
-              justify: 'space-between',
+              justifyContent: 'space-between',
               gap: '8px'
             }}
             className="quick-card-item"

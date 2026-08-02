@@ -233,7 +233,7 @@ header {
   left: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: fill;
   transform: scaleX(-1); /* Mirror effect */
 }
 
@@ -243,7 +243,8 @@ header {
   left: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: fill;
+  transform: scaleX(-1); /* GPU Mirror alignment with video */
   z-index: 2;
   pointer-events: none;
 }

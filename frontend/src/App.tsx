@@ -1,16 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  Keyboard, 
-  Trash2, 
-  Space, 
-  CornerDownLeft, 
   Cpu, 
   Wifi, 
   WifiOff,
   Mic,
   MicOff,
   Play,
-  Volume2,
   AlertTriangle,
   Info,
   RotateCcw,
@@ -26,7 +21,7 @@ import { QuickCommunicationCards } from './components/QuickCommunicationCards';
 import { LiveChatHub, type ChatMessage } from './components/LiveChatHub';
 
 import { type Landmark, type GestureSample, type GestureTemplate, type SystemSettings, type RecognitionStats } from './types';
-import { extractFeatures } from './utils/algorithm';
+import { extractFeatures, countExtendedFingers, resetEMAFilter } from './utils/algorithm';
 import { drawHandSkeleton } from './utils/drawing';
 import * as api from './utils/api';
 
@@ -118,6 +113,60 @@ function App() {
   const avatarIntervalRef = useRef<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const wsCounterRef = useRef<number>(0);
+  const recognitionRef = useRef<any>(null);
+  const lastAppendedWordRef = useRef<{ label: string; time: number }>({ label: '', time: 0 });
+  
+  // Stability & Performance Throttle Refs
+  const activeGestureLabelRef = useRef<string>('');
+  const gestureStableCounterRef = useRef<number>(0);
+  const lastSpokenTextRef = useRef<string>('');
+  const lastSpokenTimeRef = useRef<number>(0);
+
+  // Helper to check if two gesture labels are semantic synonyms (e.g. SO_5 and HI)
+  const isSynonymGesture = (w1: string, w2: string) => {
+    if (!w1 || !w2) return false;
+    if (w1 === w2) return true;
+    const greetings = ['SO_5', 'HI', 'HELLO', 'XIN_CHAO', 'XIN_CHÀO'];
+    if (greetings.includes(w1) && greetings.includes(w2)) return true;
+    return false;
+  };
+
+  // Streamlined instant sentence builder for real-time continuous gesture stream
+  const tryAppendWordToSentence = useCallback((rawLabel: string) => {
+    if (!rawLabel || rawLabel === 'ĐANG PHÂN TÍCH...' || rawLabel === 'KHÔNG PHÁT HIỆN TAY' || rawLabel === 'CHƯA CÓ DỮ LIỆU') {
+      return;
+    }
+
+    const cleanLabel = rawLabel.split(' ')[0].split('(')[0].trim().toUpperCase();
+    if (!cleanLabel) return;
+
+    const now = Date.now();
+    const last = lastAppendedWordRef.current;
+
+    // Avoid duplicate rapid append if same word or synonym appended < 2000ms ago
+    if (isSynonymGesture(last.label, cleanLabel) && now - last.time < 2000) {
+      return;
+    }
+
+    lastAppendedWordRef.current = { label: cleanLabel, time: now };
+
+    setSentence((prev) => {
+      const lastInSentence = prev.length > 0 ? prev[prev.length - 1] : '';
+      if (prev.length > 0 && isSynonymGesture(lastInSentence, cleanLabel) && now - last.time < 2000) {
+        return prev;
+      }
+      const updated = [...prev, cleanLabel];
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'PREV_WORD',
+          word: cleanLabel
+        }));
+      }
+      return updated;
+    });
+
+    speakText(cleanLabel.toLowerCase());
+  }, []);
 
   // Update recording reference
   useEffect(() => {
@@ -248,7 +297,7 @@ function App() {
             setTrajectoryMatch(data.trajectoryMatch || 0);
             setRawFeatures(data.features || null);
 
-            // Handle Sentence Builder Lock-In timer
+            // Streamlined zero-latency continuous sentence builder
             if (finalLabel !== 'ĐANG PHÂN TÍCH...' && finalLabel !== 'CHƯA CÓ DỮ LIỆU' && finalLabel !== 'KHÔNG PHÁT HIỆN TAY') {
               if (finalLabel === 'SOS') {
                 if (!sosActive) {
@@ -256,47 +305,8 @@ function App() {
                   setSentence(prev => [...prev, 'SOS']);
                   speakText("Phát hiện tín hiệu khẩn cấp!");
                 }
-                lockInTargetLabelRef.current = null;
-                lockInCounterRef.current = 0;
-                setLockInProgress(0);
-              } else if (lockInTargetLabelRef.current === finalLabel) {
-                lockInCounterRef.current += 1;
-                const progress = Math.min((lockInCounterRef.current / 4) * 100, 100);
-                setLockInProgress(progress);
-
-                if (lockInCounterRef.current === 4) {
-                  setSentence(prev => {
-                    const updated = [...prev, finalLabel];
-                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                      wsRef.current.send(JSON.stringify({
-                        type: 'PREV_WORD',
-                        word: finalLabel
-                      }));
-                    }
-                    return updated;
-                  });
-                  speakText(finalLabel.toLowerCase());
-
-                  // Optimistic log correct=true (adapts automatically on backend)
-                  api.logRecognition({
-                    predictedLabel: finalLabel,
-                    actualLabel: finalLabel,
-                    confidence: avgConfidence,
-                    correct: true,
-                    featureVectors: data.features,
-                    landmarksSequence: landmarksWindowRef.current
-                  }).then(() => {
-                    api.fetchStats().then(setStats);
-                  }).catch(console.error);
-
-                  lockInCounterRef.current = 0;
-                  lockInTargetLabelRef.current = null;
-                  setLockInProgress(0);
-                }
               } else {
-                lockInTargetLabelRef.current = finalLabel;
-                lockInCounterRef.current = 0;
-                setLockInProgress(0);
+                tryAppendWordToSentence(finalLabel);
               }
             } else {
               lockInTargetLabelRef.current = null;
@@ -331,14 +341,27 @@ function App() {
     };
   }, [sosActive]);
 
-  // --- Text-to-Speech Helper ---
+  // --- Text-to-Speech Helper (Non-blocking & deduplicated to prevent JS thread lag) ---
   const speakText = (text: string) => {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'vi-VN';
-    utterance.rate = 0.95;
-    window.speechSynthesis.speak(utterance);
+    if (!window.speechSynthesis || !text) return;
+    const now = Date.now();
+    if (lastSpokenTextRef.current === text && now - lastSpokenTimeRef.current < 2000) {
+      return;
+    }
+    lastSpokenTextRef.current = text;
+    lastSpokenTimeRef.current = now;
+
+    setTimeout(() => {
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'vi-VN';
+        utterance.rate = 1.15;
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        console.warn('Speech synthesis error:', e);
+      }
+    }, 0);
   };
 
   // --- Speech-to-Text Recognition Setup (Two-way communication) ---
@@ -463,8 +486,24 @@ function App() {
 
     setActiveLandmarks(activeHand);
 
+    const fingerInfo = countExtendedFingers(activeHand);
     const { featureVector } = extractFeatures(activeHand, pose);
     setActiveFeatureVector(featureVector);
+
+    // 1. Throttle prediction state update to prevent React render thrashing
+    setPrediction((prev) => (prev === fingerInfo.details ? prev : fingerInfo.details));
+    setConfidence(0.88);
+
+    // 2. Hysteresis stability check: Require 3 consecutive stable frames (~90ms) before sentence lock-in
+    if (activeGestureLabelRef.current === fingerInfo.label) {
+      gestureStableCounterRef.current += 1;
+      if (gestureStableCounterRef.current === 3) {
+        tryAppendWordToSentence(fingerInfo.label);
+      }
+    } else {
+      activeGestureLabelRef.current = fingerInfo.label;
+      gestureStableCounterRef.current = 1;
+    }
 
     const fWindow = featureWindowRef.current;
     const lWindow = landmarksWindowRef.current;
@@ -515,7 +554,7 @@ function App() {
     }
 
     wsCounterRef.current += 1;
-    if (wsCounterRef.current % 2 === 0 && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'FRAME',
         landmarks: fullFrame
@@ -681,31 +720,43 @@ function App() {
   };
 
   const submitCorrection = async () => {
-    if (!correctionTargetLabel.trim() || featureWindowRef.current.length === 0 || landmarksWindowRef.current.length === 0) return;
+    if (!correctionTargetLabel.trim()) return;
     const correctLabel = correctionTargetLabel.trim().toUpperCase();
 
     setLoading(true);
     setShowCorrectionModal(false);
+
+    setPrediction(correctLabel);
+    setSentence((prev) => {
+      if (prev.length > 0) {
+        const copy = [...prev];
+        copy[copy.length - 1] = correctLabel;
+        return copy;
+      }
+      return [correctLabel];
+    });
+    speakText(correctLabel.toLowerCase());
 
     try {
       await api.logRecognition({
         predictedLabel: prediction,
         actualLabel: correctLabel,
         confidence: confidence,
-        correct: false
+        correct: false,
       });
 
-      const newSample: GestureSample = {
-        id: `${correctLabel}_correction_${Date.now()}`,
-        label: correctLabel,
-        landmarksSequence: [...landmarksWindowRef.current],
-        featureVectors: [...featureWindowRef.current],
-        createdAt: Date.now()
-      };
-      await api.addSample(newSample);
+      if (landmarksWindowRef.current.length > 0 && featureWindowRef.current.length > 0) {
+        const newSample: GestureSample = {
+          id: `${correctLabel}_correction_${Date.now()}`,
+          label: correctLabel,
+          landmarksSequence: [...landmarksWindowRef.current],
+          featureVectors: [...featureWindowRef.current],
+          createdAt: Date.now(),
+        };
+        await api.addSample(newSample);
+      }
 
       await loadData();
-      alert(`Đã gửi mẫu tự sửa đổi. Cử chỉ này được tạo/cập nhật Prototype: '${correctLabel}'.`);
     } catch (err) {
       console.error('Failed to submit correction:', err);
     } finally {
@@ -714,8 +765,9 @@ function App() {
   };
 
   const handleSelectCandidate = async (label: string) => {
-    if (featureWindowRef.current.length === 0 || landmarksWindowRef.current.length === 0) return;
-    const cleanLabel = label.toUpperCase();
+    const cleanLabel = label.split(' ')[0].split('(')[0].trim().toUpperCase();
+    if (!cleanLabel) return;
+    setPrediction(cleanLabel);
 
     setSentence(prev => {
       const updated = [...prev, cleanLabel];
@@ -765,19 +817,6 @@ function App() {
     setSentence([]);
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'CLEAR_CONTEXT' }));
-    }
-  };
-  const handleAddSpace = () => setSentence(prev => [...prev, ' ']);
-  
-  const handleTriggerSpeakSentence = () => {
-    if (sentence.length === 0) return;
-    const words = sentence.filter(w => w.trim() !== '');
-    speakText(words.join(' '));
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'LEARN_SENTENCE',
-        words: words
-      }));
     }
   };
 
@@ -928,6 +967,18 @@ function App() {
                 </div>
               </div>
 
+              {lockInProgress > 0 && (
+                <div style={{ width: '100%', marginTop: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: 'var(--color-primary)', marginBottom: '2px' }}>
+                    <span>Đang tự động xác nhận câu...</span>
+                    <span>{Math.round(lockInProgress)}%</span>
+                  </div>
+                  <div style={{ height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
+                    <div style={{ width: `${lockInProgress}%`, height: '100%', background: 'linear-gradient(90deg, var(--color-primary), #00ff88)', transition: 'width 0.15s ease' }} />
+                  </div>
+                </div>
+              )}
+
               {/* Confirm / Reject Buttons on the main screen */}
               {prediction !== 'KHÔNG PHÁT HIỆN TAY' && prediction !== 'ĐANG PHÂN TÍCH...' && (
                 <div style={{ display: 'flex', gap: '6px' }}>
@@ -941,19 +992,40 @@ function App() {
                   </button>
                   <button
                     className="btn btn-danger btn-small"
-                    onClick={() => handleConfirmPrediction(false)}
+                    onClick={handleCorrectPrediction}
                     style={{ padding: '4px 8px', fontSize: '11px' }}
-                    title="Báo cáo sai, thực hiện Rollback và áp dụng hình phạt trọng số"
+                    title="Báo cáo sai, chọn cử chỉ đúng để AI học ngay"
                   >
-                    Sai
+                    Sai (Sửa AI)
                   </button>
                   <button
                     className="btn btn-secondary btn-small"
-                    onClick={handleCorrectPrediction}
-                    style={{ padding: '4px 8px', fontSize: '11px' }}
-                    title="Sửa nhãn đúng của cử chỉ"
+                    onClick={() => {
+                      setPrediction('ĐANG PHÂN TÍCH...');
+                      setConfidence(0);
+                      setActiveLandmarks(null);
+                      setActiveFeatureVector(null);
+                      featureWindowRef.current = [];
+                      landmarksWindowRef.current = [];
+                      lockInTargetLabelRef.current = null;
+                      lockInCounterRef.current = 0;
+                      resetEMAFilter();
+                      if (window.speechSynthesis) window.speechSynthesis.cancel();
+                    }}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '11px',
+                      borderColor: '#00f2fe',
+                      color: '#00f2fe',
+                      background: 'rgba(0, 242, 254, 0.15)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontWeight: 'bold',
+                    }}
+                    title="Khôi phục ngay lập tức nếu AI bị đơ hoặc kẹt nhận diện"
                   >
-                    Sửa
+                    <RotateCcw size={12} /> Reset AI
                   </button>
                 </div>
               )}
@@ -1532,13 +1604,41 @@ function App() {
               nhãn chính xác để AI học lại vị trí khớp tay này.
             </p>
 
+            <div style={{ marginBottom: '18px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', display: 'block', marginBottom: '8px' }}>
+                CHỌN NHANH TỪ DANH SÁCH CỬ CHỈ ĐÚNG:
+              </span>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto', padding: '4px' }}>
+                {['BAN_TIM', 'LIKE', 'CAM_ON', 'XIN_LOI', 'TAM_BIET', 'SO_5', 'SO_4', 'SO_3', 'SO_2', 'SO_1', 'OK', 'LOVE_YOU', 'SOS', 'HELLO', 'UONG_NUOC', 'AN_COM', ...templates.map((t) => t.label)]
+                  .filter((val, idx, self) => self.indexOf(val) === idx)
+                  .map((itemLabel) => (
+                    <button
+                      key={itemLabel}
+                      type="button"
+                      className="btn btn-secondary btn-small"
+                      onClick={() => setCorrectionTargetLabel(itemLabel)}
+                      style={{
+                        fontSize: '11px',
+                        padding: '4px 10px',
+                        borderColor: correctionTargetLabel === itemLabel ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)',
+                        background: correctionTargetLabel === itemLabel ? 'rgba(0, 242, 254, 0.25)' : 'rgba(255,255,255,0.03)',
+                        color: correctionTargetLabel === itemLabel ? '#00f2fe' : '#fff',
+                        fontWeight: correctionTargetLabel === itemLabel ? 'bold' : 'normal',
+                      }}
+                    >
+                      {itemLabel}
+                    </button>
+                  ))}
+              </div>
+            </div>
+
             <div className="form-group" style={{ marginBottom: '24px' }}>
-              <label htmlFor="correction-label-input">NHÃN ĐÚNG CỦA CỬ CHỈ</label>
+              <label htmlFor="correction-label-input">HOẶC NHẬP TÊN CỬ CHỈ MỚI</label>
               <input
                 id="correction-label-input"
                 type="text"
                 className="input-control"
-                placeholder="VD: B, LIKE, HELLO, SOS"
+                placeholder="VD: BAN_TIM, LIKE, CAM_ON, SO_5"
                 value={correctionTargetLabel}
                 onChange={(e) => setCorrectionTargetLabel(e.target.value.toUpperCase())}
               />

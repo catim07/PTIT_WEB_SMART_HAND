@@ -24,11 +24,11 @@ public class ConfidenceCalibrationEngine {
             double userReliability,
             GesturePrototype prototype) {
         
-        // 1. DTW distance to match score (exponential decay)
-        double matchScore = Math.exp(-2.0 * dtwDistance);
+        // 1. DTW distance to match score (Linear range mapping)
+        double matchScore = Math.max(0.0, 1.0 - (dtwDistance / 1.2));
 
-        // 2. Prototype Quality based on training sample count (max contribution reached at 20 samples)
-        double protoQuality = Math.min(1.0, (prototype.getSampleCount() != null ? prototype.getSampleCount() : 1.0) / 20.0);
+        // 2. Prototype Quality based on training sample count
+        double protoQuality = Math.min(1.0, (prototype.getSampleCount() != null ? prototype.getSampleCount() : 1.0) / 10.0);
 
         // 3. Gesture Stability based on the prototype's learning weight
         double stability = Math.min(1.0, prototype.getWeight() / 2.0);
@@ -36,12 +36,12 @@ public class ConfidenceCalibrationEngine {
         // 4. Context boost (clamped)
         double contextScore = Math.min(1.0, contextBoost);
 
-        // Calibrated Formula
-        double rawConfidence = (0.50 * matchScore) 
-                             + (0.15 * contextScore) 
-                             + (0.10 * userReliability) 
-                             + (0.10 * protoQuality) 
-                             + (0.15 * stability);
+        // Calibrated Formula (80% weight on matchScore for real-time accuracy)
+        double rawConfidence = (0.80 * matchScore) 
+                             + (0.08 * contextScore) 
+                             + (0.04 * userReliability) 
+                             + (0.04 * protoQuality) 
+                             + (0.04 * stability);
 
         return Math.max(0.0, Math.min(1.0, rawConfidence));
     }
@@ -50,7 +50,7 @@ public class ConfidenceCalibrationEngine {
      * Compute a gesture-specific dynamic acceptance threshold based on historical logs of correct executions.
      */
     public double getDynamicThreshold(String label) {
-        if (label == null) return 0.60;
+        if (label == null) return 0.30;
         List<RecognitionLog> logs = recognitionLogRepository.findByActualLabel(label.toUpperCase().trim());
         
         List<Double> correctConfidences = new ArrayList<>();
@@ -61,7 +61,7 @@ public class ConfidenceCalibrationEngine {
         }
 
         if (correctConfidences.size() < 5) {
-            return 0.60; // Default baseline threshold for new/unrefined gestures
+            return 0.30; // Fast responsive baseline threshold for real-time recognition
         }
 
         double sum = 0.0;
@@ -79,7 +79,7 @@ public class ConfidenceCalibrationEngine {
         // Dynamic threshold = mean - 1.8 * stdDev
         double threshold = mean - 1.8 * stdDev;
         
-        // Clamp threshold to a safe operating range [0.45, 0.85]
-        return Math.max(0.45, Math.min(0.85, threshold));
+        // Clamp threshold to a fast operating range [0.25, 0.70]
+        return Math.max(0.25, Math.min(0.70, threshold));
     }
 }

@@ -7,8 +7,6 @@ import {
   Plus, 
   Wand2, 
   Send,
-  MessageSquare,
-  ChevronRight,
   Lightbulb
 } from 'lucide-react';
 
@@ -32,8 +30,7 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
   candidates,
 }) => {
   const [naturalSentence, setNaturalSentence] = useState<string>('');
-  const [speechRate, setSpeechRate] = useState<number>(1.0);
-  const [autoSpeakEnabled, setAutoSpeakEnabled] = useState<boolean>(true);
+  const [autoSpeakEnabled] = useState<boolean>(true);
 
   // Convert raw sign language keywords into a smooth natural Vietnamese sentence
   const formatNaturalSentence = (words: string[]): string => {
@@ -44,29 +41,44 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
 
     const upper = cleanWords.map(w => w.toUpperCase().trim());
 
-    // NLP Rule-based grammar transformation templates for Vietnamese Sign Language
+    // NLP Rule-based grammar transformation templates for Vietnamese Sign Language (VSL -> Natural Sentence)
     if (upper.length === 1) {
       if (upper[0] === 'HELLO' || upper[0] === 'XIN_CHAO') return 'Xin chào bạn!';
-      if (upper[0] === 'SOS') return 'Cảnh báo khẩn cấp! Cần trợ giúp ngay lập tức!';
-      if (upper[0] === 'UONG_NUOC') return 'Cho tôi xin một cốc nước.';
+      if (upper[0] === 'SOS') return 'Cảnh báo khẩn cấp! Tôi đang cần hỗ trợ ngay lập tức!';
+      if (upper[0] === 'UONG_NUOC') return 'Cho tôi xin một cốc nước uống.';
       if (upper[0] === 'LIKE') return 'Tôi rất thích điều này!';
+      if (upper[0] === 'DISLIKE') return 'Tôi không thích điều này.';
+      if (upper[0] === 'CAM_ON') return 'Xin chân thành cảm ơn bạn rất nhiều!';
+      if (upper[0] === 'XIN_LOI') return 'Tôi rất xin lỗi bạn, mong bạn thông cảm.';
+      if (upper[0] === 'YEU_THUONG') return 'Tôi rất yêu thương và trân trọng bạn.';
+      if (upper[0] === 'GIUP_DOI') return 'Xin vui lòng hỗ trợ giúp đỡ tôi với.';
+      if (upper[0] === 'TAM_BIET') return 'Tạm biệt bạn, hẹn gặp lại sau!';
+      if (upper[0] === 'OK') return 'Được rồi, tôi hoàn toàn đồng ý!';
       return upper[0];
     }
 
     if (upper.includes('SOS')) {
-      return 'CẢNH BÁO KHẨN CẤP! Tôi đang cần hỗ trợ ngay!';
+      return 'CẢNH BÁO KHẨN CẤP! Tôi đang gặp nguy hiểm và cần hỗ trợ ngay!';
     }
 
-    if (upper.includes('TÔI') && upper.includes('UONG_NUOC')) {
-      return 'Tôi đang cảm thấy khát và muốn uống nước.';
+    if ((upper.includes('TÔI') || upper.includes('TOI')) && upper.includes('UONG_NUOC')) {
+      return 'Tôi đang cảm thấy khát và muốn xin một cốc nước.';
     }
 
-    if (upper.includes('TÔI') && upper.includes('MUỐN') && upper.includes('UONG_NUOC')) {
-      return 'Tôi muốn uống một cốc nước.';
+    if ((upper.includes('TÔI') || upper.includes('TOI')) && (upper.includes('CẦN') || upper.includes('CAN')) && (upper.includes('GIÚP') || upper.includes('GIUP_DOI'))) {
+      return 'Tôi đang rất cần sự giúp đỡ khẩn cấp từ bạn.';
+    }
+
+    if ((upper.includes('XIN_LOI') || upper.includes('XIN_LỖI')) && upper.includes('BẠN')) {
+      return 'Tôi chân thành xin lỗi bạn, rất mong bạn thông cảm.';
+    }
+
+    if ((upper.includes('CAM_ON') || upper.includes('CẢM_ƠN')) && upper.includes('BẠN')) {
+      return 'Cảm ơn bạn rất nhiều vì đã giúp đỡ tôi nhiệt tình.';
     }
 
     if (upper.includes('BẠN') && upper.includes('CẦN') && upper.includes('GIÚP')) {
-      return 'Bạn có cần tôi hỗ trợ gì không?';
+      return 'Bạn có cần tôi hỗ trợ điều gì không?';
     }
 
     // Default join with natural capitalization and punctuation
@@ -161,7 +173,7 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
             </span>
           ))
         ) : (
-          <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', italic: 'true' }}>
+          <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.85rem', fontStyle: 'italic' }}>
             Các cử chỉ nhận dạng được từ Camera sẽ tự động được xếp vào đây...
           </span>
         )}
@@ -171,7 +183,7 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
       {sentence.length > 0 && (
         <div style={{ background: 'linear-gradient(90deg, rgba(0, 242, 254, 0.1), rgba(79, 172, 254, 0.05))', borderLeft: '4px solid var(--color-primary)', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', tracking: '0.5px', color: 'var(--color-primary)', fontWeight: '700', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--color-primary)', fontWeight: '700', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Wand2 size={12} /> Câu Tiếng Việt Chuẩn AI:
             </div>
             <div style={{ color: '#fff', fontSize: '1rem', fontWeight: '600' }}>
