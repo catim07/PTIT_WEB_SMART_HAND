@@ -558,19 +558,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             isProcessing = true;
             isAIEvaluatingRef.current = true;
             try {
-              if (!offscreenCanvasRef.current) {
-                offscreenCanvasRef.current = document.createElement('canvas');
-              }
-              const offCanvas = offscreenCanvasRef.current;
-              if (offCanvas.width !== v.videoWidth)
-                offCanvas.width = v.videoWidth;
-              if (offCanvas.height !== v.videoHeight)
-                offCanvas.height = v.videoHeight;
-              const offCtx = offCanvas.getContext('2d');
-              if (offCtx) {
-                offCtx.drawImage(v, 0, 0, v.videoWidth, v.videoHeight);
-                await engine.send({ image: offCanvas });
-              }
+              await engine.send({ image: v });
             } catch (e) {
               console.warn('Frame process warning:', e);
               isAIEvaluatingRef.current = false;

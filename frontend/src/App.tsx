@@ -720,31 +720,43 @@ function App() {
   };
 
   const submitCorrection = async () => {
-    if (!correctionTargetLabel.trim() || featureWindowRef.current.length === 0 || landmarksWindowRef.current.length === 0) return;
+    if (!correctionTargetLabel.trim()) return;
     const correctLabel = correctionTargetLabel.trim().toUpperCase();
 
     setLoading(true);
     setShowCorrectionModal(false);
+
+    setPrediction(correctLabel);
+    setSentence((prev) => {
+      if (prev.length > 0) {
+        const copy = [...prev];
+        copy[copy.length - 1] = correctLabel;
+        return copy;
+      }
+      return [correctLabel];
+    });
+    speakText(correctLabel.toLowerCase());
 
     try {
       await api.logRecognition({
         predictedLabel: prediction,
         actualLabel: correctLabel,
         confidence: confidence,
-        correct: false
+        correct: false,
       });
 
-      const newSample: GestureSample = {
-        id: `${correctLabel}_correction_${Date.now()}`,
-        label: correctLabel,
-        landmarksSequence: [...landmarksWindowRef.current],
-        featureVectors: [...featureWindowRef.current],
-        createdAt: Date.now()
-      };
-      await api.addSample(newSample);
+      if (landmarksWindowRef.current.length > 0 && featureWindowRef.current.length > 0) {
+        const newSample: GestureSample = {
+          id: `${correctLabel}_correction_${Date.now()}`,
+          label: correctLabel,
+          landmarksSequence: [...landmarksWindowRef.current],
+          featureVectors: [...featureWindowRef.current],
+          createdAt: Date.now(),
+        };
+        await api.addSample(newSample);
+      }
 
       await loadData();
-      alert(`Đã gửi mẫu tự sửa đổi. Cử chỉ này được tạo/cập nhật Prototype: '${correctLabel}'.`);
     } catch (err) {
       console.error('Failed to submit correction:', err);
     } finally {
@@ -980,11 +992,11 @@ function App() {
                   </button>
                   <button
                     className="btn btn-danger btn-small"
-                    onClick={() => handleConfirmPrediction(false)}
+                    onClick={handleCorrectPrediction}
                     style={{ padding: '4px 8px', fontSize: '11px' }}
-                    title="Báo cáo sai, thực hiện Rollback và áp dụng hình phạt trọng số"
+                    title="Báo cáo sai, chọn cử chỉ đúng để AI học ngay"
                   >
-                    Sai
+                    Sai (Sửa AI)
                   </button>
                   <button
                     className="btn btn-secondary btn-small"
@@ -1592,13 +1604,41 @@ function App() {
               nhãn chính xác để AI học lại vị trí khớp tay này.
             </p>
 
+            <div style={{ marginBottom: '18px' }}>
+              <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: '600', display: 'block', marginBottom: '8px' }}>
+                CHỌN NHANH TỪ DANH SÁCH CỬ CHỈ ĐÚNG:
+              </span>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto', padding: '4px' }}>
+                {['BAN_TIM', 'LIKE', 'CAM_ON', 'XIN_LOI', 'TAM_BIET', 'SO_5', 'SO_4', 'SO_3', 'SO_2', 'SO_1', 'OK', 'LOVE_YOU', 'SOS', 'HELLO', 'UONG_NUOC', 'AN_COM', ...templates.map((t) => t.label)]
+                  .filter((val, idx, self) => self.indexOf(val) === idx)
+                  .map((itemLabel) => (
+                    <button
+                      key={itemLabel}
+                      type="button"
+                      className="btn btn-secondary btn-small"
+                      onClick={() => setCorrectionTargetLabel(itemLabel)}
+                      style={{
+                        fontSize: '11px',
+                        padding: '4px 10px',
+                        borderColor: correctionTargetLabel === itemLabel ? 'var(--color-primary)' : 'rgba(255,255,255,0.1)',
+                        background: correctionTargetLabel === itemLabel ? 'rgba(0, 242, 254, 0.25)' : 'rgba(255,255,255,0.03)',
+                        color: correctionTargetLabel === itemLabel ? '#00f2fe' : '#fff',
+                        fontWeight: correctionTargetLabel === itemLabel ? 'bold' : 'normal',
+                      }}
+                    >
+                      {itemLabel}
+                    </button>
+                  ))}
+              </div>
+            </div>
+
             <div className="form-group" style={{ marginBottom: '24px' }}>
-              <label htmlFor="correction-label-input">NHÃN ĐÚNG CỦA CỬ CHỈ</label>
+              <label htmlFor="correction-label-input">HOẶC NHẬP TÊN CỬ CHỈ MỚI</label>
               <input
                 id="correction-label-input"
                 type="text"
                 className="input-control"
-                placeholder="VD: B, LIKE, HELLO, SOS"
+                placeholder="VD: BAN_TIM, LIKE, CAM_ON, SO_5"
                 value={correctionTargetLabel}
                 onChange={(e) => setCorrectionTargetLabel(e.target.value.toUpperCase())}
               />
