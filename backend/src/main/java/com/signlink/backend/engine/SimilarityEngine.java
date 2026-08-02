@@ -29,12 +29,14 @@ public class SimilarityEngine {
         }
         dtw[0][0] = 0.0;
 
-        // Use default equal weights if null
-        double[] featureWeights = weights;
-        if (featureWeights == null || featureWeights.length != 44) {
-            featureWeights = new double[44];
-            for (int i = 0; i < 44; i++) {
-                featureWeights[i] = 1.0;
+        // Optimized feature weighting: Prioritize finger geometry (0..22) by 3.5x, suppress pose noise (23..43) to 0.1x
+        double[] featureWeights = new double[44];
+        for (int k = 0; k < 44; k++) {
+            double initW = (weights != null && weights.length == 44) ? weights[k] : 1.0;
+            if (k <= 22) {
+                featureWeights[k] = initW * 3.5;
+            } else {
+                featureWeights[k] = initW * 0.1;
             }
         }
 

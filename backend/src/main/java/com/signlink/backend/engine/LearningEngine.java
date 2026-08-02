@@ -97,24 +97,19 @@ public class LearningEngine {
         
         try {
             double[][] oldFeatures = mapper.readValue(parent.getFeatureVectors(), double[][].class);
-            double[][] oldLandmarks = mapper.readValue(parent.getLandmarksSequence(), double[][].class);
 
             // 1. Interpolate features
             double[][] evolvedFeatures = performIncrementalAdaptation(oldFeatures, newFeatures, learningRate, userReliability);
             
-            // 2. Interpolate skeletal landmarks (for visualization purposes)
-            double[][] evolvedLandmarks = new double[oldLandmarks.length][oldLandmarks[0].length];
-            double effectiveRate = learningRate * userReliability;
-            for (int i = 0; i < oldLandmarks.length; i++) {
-                for (int j = 0; j < oldLandmarks[i].length; j++) {
-                    evolvedLandmarks[i][j] = (1.0 - effectiveRate) * oldLandmarks[i][j] + effectiveRate * newLandmarks[i][j];
-                }
-            }
+            // 2. Safely retain landmarks sequence string
+            String evolvedLandmarksStr = parent.getLandmarksSequence();
 
             // 3. Evolve weights
             double[] parentWeights = null;
             if (parent.getFeatureWeights() != null) {
-                parentWeights = mapper.readValue(parent.getFeatureWeights(), double[].class);
+                try {
+                    parentWeights = mapper.readValue(parent.getFeatureWeights(), double[].class);
+                } catch (Exception ignored) {}
             }
             double[] evolvedWeights = updateFeatureWeights(parentWeights, oldFeatures, newFeatures, 1.2);
 
@@ -124,7 +119,7 @@ public class LearningEngine {
             child.setLabel(parent.getLabel());
             child.setUserId(parent.getUserId());
             child.setFeatureVectors(mapper.writeValueAsString(evolvedFeatures));
-            child.setLandmarksSequence(mapper.writeValueAsString(evolvedLandmarks));
+            child.setLandmarksSequence(evolvedLandmarksStr);
             child.setSampleCount(parent.getSampleCount() + 1);
             child.setWeight(Math.min(2.5, parent.getWeight() + 0.05 * userReliability));
             child.setUpdatedAt(System.currentTimeMillis());

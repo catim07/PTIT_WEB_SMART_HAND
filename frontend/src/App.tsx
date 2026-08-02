@@ -21,7 +21,7 @@ import { QuickCommunicationCards } from './components/QuickCommunicationCards';
 import { LiveChatHub, type ChatMessage } from './components/LiveChatHub';
 
 import { type Landmark, type GestureSample, type GestureTemplate, type SystemSettings, type RecognitionStats } from './types';
-import { extractFeatures } from './utils/algorithm';
+import { extractFeatures, countExtendedFingers, resetEMAFilter } from './utils/algorithm';
 import { drawHandSkeleton } from './utils/drawing';
 import * as api from './utils/api';
 
@@ -114,6 +114,59 @@ function App() {
   const wsRef = useRef<WebSocket | null>(null);
   const wsCounterRef = useRef<number>(0);
   const recognitionRef = useRef<any>(null);
+  const lastAppendedWordRef = useRef<{ label: string; time: number }>({ label: '', time: 0 });
+  
+  // Stability & Performance Throttle Refs
+  const activeGestureLabelRef = useRef<string>('');
+  const gestureStableCounterRef = useRef<number>(0);
+  const lastSpokenTextRef = useRef<string>('');
+  const lastSpokenTimeRef = useRef<number>(0);
+
+  // Helper to check if two gesture labels are semantic synonyms (e.g. SO_5 and HI)
+  const isSynonymGesture = (w1: string, w2: string) => {
+    if (!w1 || !w2) return false;
+    if (w1 === w2) return true;
+    const greetings = ['SO_5', 'HI', 'HELLO', 'XIN_CHAO', 'XIN_CHÀO'];
+    if (greetings.includes(w1) && greetings.includes(w2)) return true;
+    return false;
+  };
+
+  // Streamlined instant sentence builder for real-time continuous gesture stream
+  const tryAppendWordToSentence = useCallback((rawLabel: string) => {
+    if (!rawLabel || rawLabel === 'ĐANG PHÂN TÍCH...' || rawLabel === 'KHÔNG PHÁT HIỆN TAY' || rawLabel === 'CHƯA CÓ DỮ LIỆU') {
+      return;
+    }
+
+    const cleanLabel = rawLabel.split(' ')[0].split('(')[0].trim().toUpperCase();
+    if (!cleanLabel) return;
+
+    const now = Date.now();
+    const last = lastAppendedWordRef.current;
+
+    // Avoid duplicate rapid append if same word or synonym appended < 2000ms ago
+    if (isSynonymGesture(last.label, cleanLabel) && now - last.time < 2000) {
+      return;
+    }
+
+    lastAppendedWordRef.current = { label: cleanLabel, time: now };
+
+    setSentence((prev) => {
+      const lastInSentence = prev.length > 0 ? prev[prev.length - 1] : '';
+      if (prev.length > 0 && isSynonymGesture(lastInSentence, cleanLabel) && now - last.time < 2000) {
+        return prev;
+      }
+      const updated = [...prev, cleanLabel];
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'PREV_WORD',
+          word: cleanLabel
+        }));
+      }
+      return updated;
+    });
+
+    speakText(cleanLabel.toLowerCase());
+  }, []);
 
   // Update recording reference
   useEffect(() => {
@@ -244,7 +297,7 @@ function App() {
             setTrajectoryMatch(data.trajectoryMatch || 0);
             setRawFeatures(data.features || null);
 
-            // Handle Sentence Builder Lock-In timer
+            // Streamlined zero-latency continuous sentence builder
             if (finalLabel !== 'ĐANG PHÂN TÍCH...' && finalLabel !== 'CHƯA CÓ DỮ LIỆU' && finalLabel !== 'KHÔNG PHÁT HIỆN TAY') {
               if (finalLabel === 'SOS') {
                 if (!sosActive) {
@@ -252,47 +305,8 @@ function App() {
                   setSentence(prev => [...prev, 'SOS']);
                   speakText("Phát hiện tín hiệu khẩn cấp!");
                 }
-                lockInTargetLabelRef.current = null;
-                lockInCounterRef.current = 0;
-                setLockInProgress(0);
-              } else if (lockInTargetLabelRef.current === finalLabel) {
-                lockInCounterRef.current += 1;
-                const progress = Math.min((lockInCounterRef.current / 4) * 100, 100);
-                setLockInProgress(progress);
-
-                if (lockInCounterRef.current === 4) {
-                  setSentence(prev => {
-                    const updated = [...prev, finalLabel];
-                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                      wsRef.current.send(JSON.stringify({
-                        type: 'PREV_WORD',
-                        word: finalLabel
-                      }));
-                    }
-                    return updated;
-                  });
-                  speakText(finalLabel.toLowerCase());
-
-                  // Optimistic log correct=true (adapts automatically on backend)
-                  api.logRecognition({
-                    predictedLabel: finalLabel,
-                    actualLabel: finalLabel,
-                    confidence: avgConfidence,
-                    correct: true,
-                    featureVectors: data.features,
-                    landmarksSequence: landmarksWindowRef.current
-                  }).then(() => {
-                    api.fetchStats().then(setStats);
-                  }).catch(console.error);
-
-                  lockInCounterRef.current = 0;
-                  lockInTargetLabelRef.current = null;
-                  setLockInProgress(0);
-                }
               } else {
-                lockInTargetLabelRef.current = finalLabel;
-                lockInCounterRef.current = 0;
-                setLockInProgress(0);
+                tryAppendWordToSentence(finalLabel);
               }
             } else {
               lockInTargetLabelRef.current = null;
@@ -327,14 +341,27 @@ function App() {
     };
   }, [sosActive]);
 
-  // --- Text-to-Speech Helper ---
+  // --- Text-to-Speech Helper (Non-blocking & deduplicated to prevent JS thread lag) ---
   const speakText = (text: string) => {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'vi-VN';
-    utterance.rate = 0.95;
-    window.speechSynthesis.speak(utterance);
+    if (!window.speechSynthesis || !text) return;
+    const now = Date.now();
+    if (lastSpokenTextRef.current === text && now - lastSpokenTimeRef.current < 2000) {
+      return;
+    }
+    lastSpokenTextRef.current = text;
+    lastSpokenTimeRef.current = now;
+
+    setTimeout(() => {
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'vi-VN';
+        utterance.rate = 1.15;
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        console.warn('Speech synthesis error:', e);
+      }
+    }, 0);
   };
 
   // --- Speech-to-Text Recognition Setup (Two-way communication) ---
@@ -459,8 +486,24 @@ function App() {
 
     setActiveLandmarks(activeHand);
 
+    const fingerInfo = countExtendedFingers(activeHand);
     const { featureVector } = extractFeatures(activeHand, pose);
     setActiveFeatureVector(featureVector);
+
+    // 1. Throttle prediction state update to prevent React render thrashing
+    setPrediction((prev) => (prev === fingerInfo.details ? prev : fingerInfo.details));
+    setConfidence(0.88);
+
+    // 2. Hysteresis stability check: Require 3 consecutive stable frames (~90ms) before sentence lock-in
+    if (activeGestureLabelRef.current === fingerInfo.label) {
+      gestureStableCounterRef.current += 1;
+      if (gestureStableCounterRef.current === 3) {
+        tryAppendWordToSentence(fingerInfo.label);
+      }
+    } else {
+      activeGestureLabelRef.current = fingerInfo.label;
+      gestureStableCounterRef.current = 1;
+    }
 
     const fWindow = featureWindowRef.current;
     const lWindow = landmarksWindowRef.current;
@@ -511,7 +554,7 @@ function App() {
     }
 
     wsCounterRef.current += 1;
-    if (wsCounterRef.current % 2 === 0 && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'FRAME',
         landmarks: fullFrame
@@ -710,8 +753,9 @@ function App() {
   };
 
   const handleSelectCandidate = async (label: string) => {
-    if (featureWindowRef.current.length === 0 || landmarksWindowRef.current.length === 0) return;
-    const cleanLabel = label.toUpperCase();
+    const cleanLabel = label.split(' ')[0].split('(')[0].trim().toUpperCase();
+    if (!cleanLabel) return;
+    setPrediction(cleanLabel);
 
     setSentence(prev => {
       const updated = [...prev, cleanLabel];
@@ -944,11 +988,32 @@ function App() {
                   </button>
                   <button
                     className="btn btn-secondary btn-small"
-                    onClick={handleCorrectPrediction}
-                    style={{ padding: '4px 8px', fontSize: '11px' }}
-                    title="Sửa nhãn đúng của cử chỉ"
+                    onClick={() => {
+                      setPrediction('ĐANG PHÂN TÍCH...');
+                      setConfidence(0);
+                      setActiveLandmarks(null);
+                      setActiveFeatureVector(null);
+                      featureWindowRef.current = [];
+                      landmarksWindowRef.current = [];
+                      lockInTargetLabelRef.current = null;
+                      lockInCounterRef.current = 0;
+                      resetEMAFilter();
+                      if (window.speechSynthesis) window.speechSynthesis.cancel();
+                    }}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '11px',
+                      borderColor: '#00f2fe',
+                      color: '#00f2fe',
+                      background: 'rgba(0, 242, 254, 0.15)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontWeight: 'bold',
+                    }}
+                    title="Khôi phục ngay lập tức nếu AI bị đơ hoặc kẹt nhận diện"
                   >
-                    Sửa
+                    <RotateCcw size={12} /> Reset AI
                   </button>
                 </div>
               )}

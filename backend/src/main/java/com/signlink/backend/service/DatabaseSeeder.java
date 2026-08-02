@@ -10,6 +10,7 @@ import com.signlink.backend.engine.FeatureEngine;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -41,12 +42,27 @@ public class DatabaseSeeder implements CommandLineRunner {
             System.out.println(">>> Seeded default user profile.");
         }
 
-        // 2. Seed Initial Gesture Prototypes if database is empty
-        if (gesturePrototypeRepository.count() == 0) {
-            seedPrototype("HELLO", createHelloCoordinates());
-            seedPrototype("UONG_NUOC", createUongNuocCoordinates());
-            seedPrototype("SOS", createSosCoordinates());
-            System.out.println(">>> Seeded default gesture prototypes.");
+        // 2. Seed Rich Dataset of Common Gestures if missing
+        seedMissingPrototypes();
+    }
+
+    private void seedMissingPrototypes() throws Exception {
+        String[] labels = {
+            "HELLO", "XIN_CHAO", "CAM_ON", "OK", "LIKE", "DISLIKE",
+            "BAN_TIM", "SOS", "TOI", "MUON", "UONG_NUOC", "AN_COM",
+            "DI_HOC", "TAM_BIET", "SO_0", "SO_1", "SO_2", "SO_3", "SO_4", "SO_5"
+        };
+
+        int count = 0;
+        for (String label : labels) {
+            if (gesturePrototypeRepository.findByLabel(label).isEmpty()) {
+                Landmark[][] sequence = generateSyntheticSequence(label);
+                seedPrototype(label, sequence);
+                count++;
+            }
+        }
+        if (count > 0) {
+            System.out.println(">>> Seeded " + count + " new gesture prototypes into MongoDB Atlas!");
         }
     }
 
@@ -94,53 +110,68 @@ public class DatabaseSeeder implements CommandLineRunner {
         proto.setUpdatedAt(System.currentTimeMillis());
         proto.setVersion(1);
         proto.setParentId(null);
-        proto.setVariantName(null);
+        proto.setVariantName("Mẫu Chuẩn Hệ Thống");
         proto.setFeatureWeights(mapper.writeValueAsString(defaultWeights));
 
         gesturePrototypeRepository.save(proto);
     }
 
-    // --- Helper math to synthesize mock hand skeletal sequences ---
-
-    private Landmark[][] createHelloCoordinates() {
+    private Landmark[][] generateSyntheticSequence(String label) {
         Landmark[][] sequence = new Landmark[30][76];
-        for (int t = 0; t < 30; t++) {
-            // Right hand waving horizontally
-            double wristX = 0.2 + 0.1 * Math.sin(t * 2 * Math.PI / 15.0);
-            double wristY = 0.2; // Chest level
-            
-            sequence[t] = buildSyntheticFrame(wristX, wristY, true); // Fingers fully open
+        boolean[] openFingers;
+
+        switch (label) {
+            case "SO_0":
+                openFingers = new boolean[]{false, false, false, false, false}; // Fist
+                break;
+            case "SO_1":
+                openFingers = new boolean[]{false, true, false, false, false}; // Index only
+                break;
+            case "SO_2":
+                openFingers = new boolean[]{false, true, true, false, false}; // Victory / Peace
+                break;
+            case "SO_3":
+                openFingers = new boolean[]{false, true, true, true, false}; // Index, Middle, Ring
+                break;
+            case "SO_4":
+                openFingers = new boolean[]{false, true, true, true, true}; // 4 fingers
+                break;
+            case "SO_5":
+            case "HELLO":
+            case "XIN_CHAO":
+            case "TAM_BIET":
+                openFingers = new boolean[]{true, true, true, true, true}; // All 5 open
+                break;
+            case "LIKE":
+                openFingers = new boolean[]{true, false, false, false, false}; // Thumb up
+                break;
+            case "OK":
+                openFingers = new boolean[]{false, false, true, true, true}; // Thumb+Index circle, 3 up
+                break;
+            case "BAN_TIM":
+                openFingers = new boolean[]{true, true, false, false, false}; // Finger heart pinch
+                break;
+            case "AN_COM":
+            case "UONG_NUOC":
+                openFingers = new boolean[]{false, false, false, false, false}; // Cup / Chopstick pinch
+                break;
+            default:
+                openFingers = new boolean[]{true, true, true, true, true};
+                break;
         }
+
+        for (int t = 0; t < 30; t++) {
+            double wristX = 0.2 + 0.05 * Math.sin(t * 2 * Math.PI / 15.0);
+            double wristY = "UONG_NUOC".equals(label) || "AN_COM".equals(label) 
+                    ? 0.4 - 0.5 * (t / 29.0) : 0.2;
+
+            sequence[t] = buildSyntheticFrame(wristX, wristY, openFingers);
+        }
+
         return sequence;
     }
 
-    private Landmark[][] createUongNuocCoordinates() {
-        Landmark[][] sequence = new Landmark[30][76];
-        for (int t = 0; t < 30; t++) {
-            // Hand moving vertically upwards from chest to mouth
-            double progress = (double) t / 29.0;
-            double wristX = 0.1;
-            double wristY = 0.4 - 0.5 * progress; // Moves up from y=0.4 to y=-0.1 (mouth level)
-            
-            sequence[t] = buildSyntheticFrame(wristX, wristY, false); // Fingers closed (like holding a cup)
-        }
-        return sequence;
-    }
-
-    private Landmark[][] createSosCoordinates() {
-        Landmark[][] sequence = new Landmark[30][76];
-        for (int t = 0; t < 30; t++) {
-            // Waving hands high above the shoulders
-            double progress = (double) t / 29.0;
-            double wristX = 0.3 * Math.sin(t * 2 * Math.PI / 10.0);
-            double wristY = -0.5; // High above shoulders
-            
-            sequence[t] = buildSyntheticFrame(wristX, wristY, true); // Fingers fully open
-        }
-        return sequence;
-    }
-
-    private Landmark[] buildSyntheticFrame(double wristX, double wristY, boolean fingersOpen) {
+    private Landmark[] buildSyntheticFrame(double wristX, double wristY, boolean[] openFingers) {
         Landmark[] frame = new Landmark[76];
         
         // 1. Left Hand (flat zeros)
@@ -150,12 +181,13 @@ public class DatabaseSeeder implements CommandLineRunner {
 
         // 2. Right Hand
         frame[21] = new Landmark(wristX, wristY, 0.0, 1.0); // wrist
-        double fingerExtend = fingersOpen ? 0.15 : 0.04;
         
         // Set standard finger node offsets relative to wrist
         int idx = 22;
         for (int f = 0; f < 5; f++) {
-            double angle = f * Math.PI / 6.0;
+            boolean isOpen = openFingers != null && f < openFingers.length ? openFingers[f] : true;
+            double fingerExtend = isOpen ? 0.15 : 0.03;
+            double angle = (f - 2) * (Math.PI / 8.0) - Math.PI / 2.0;
             double fx = Math.cos(angle);
             double fy = Math.sin(angle);
             
@@ -166,15 +198,10 @@ public class DatabaseSeeder implements CommandLineRunner {
         }
 
         // 3. Pose
-        // Nose at (0.0, -0.2)
         frame[42] = new Landmark(0.0, -0.2, 0.0, 1.0); // Nose (index 42 in frame, 0 in pose)
+        frame[53] = new Landmark(-0.35, 0.0, 0.0, 1.0); // Left Shoulder
+        frame[54] = new Landmark(0.35, 0.0, 0.0, 1.0);  // Right Shoulder
         
-        // Left Shoulder (index 53 in frame, 11 in pose)
-        frame[53] = new Landmark(-0.35, 0.0, 0.0, 1.0);
-        // Right Shoulder (index 54 in frame, 12 in pose)
-        frame[54] = new Landmark(0.35, 0.0, 0.0, 1.0);
-        
-        // Fill other pose nodes
         for (int i = 43; i < 75; i++) {
             if (i != 53 && i != 54) {
                 frame[i] = new Landmark(0.0, 0.0, 0.0, 0.0);

@@ -41,10 +41,9 @@ export function drawHandSkeleton(
 
     if (!start || !end) continue;
 
-    // Flip X axis on screen because the video is mirrored
-    const sx = (1 - start.x) * width;
+    const sx = start.x * width;
     const sy = start.y * height;
-    const ex = (1 - end.x) * width;
+    const ex = end.x * width;
     const ey = end.y * height;
 
     ctx.beginPath();
@@ -59,8 +58,7 @@ export function drawHandSkeleton(
   ctx.fillStyle = '#bf55ec';
 
   landmarks.forEach((landmark, idx) => {
-    // Flip X axis
-    const x = (1 - landmark.x) * width;
+    const x = landmark.x * width;
     const y = landmark.y * height;
 
     ctx.beginPath();

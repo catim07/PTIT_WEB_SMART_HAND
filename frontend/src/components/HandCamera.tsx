@@ -9,9 +9,12 @@ import {
   ExternalLink,
   ShieldAlert,
   Hand,
+  Zap,
+  RotateCcw,
 } from 'lucide-react';
 import { type Landmark } from '../types';
 import { drawHandSkeleton } from '../utils/drawing';
+import { resetEMAFilter } from '../utils/algorithm';
 
 interface HandCameraProps {
   onLandmarksDetected: (
@@ -27,6 +30,31 @@ type ErrorType = 'PERMISSION_DENIED' | 'NOT_FOUND' | 'HARDWARE_IN_USE' | 'NOT_SU
 
 const FRAME_INTERVAL_MS = 33; // 30 FPS
 
+/**
+ * Robust getUserMedia with a hard timeout guard to prevent hardware driver hangs.
+ */
+const getUserMediaWithTimeout = (
+  constraints: MediaStreamConstraints,
+  timeoutMs = 5000
+): Promise<MediaStream> => {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('HARDWARE_TIMEOUT: Thời gian phản hồi của thiết bị Camera vượt quá 5 giây.'));
+    }, timeoutMs);
+
+    navigator.mediaDevices
+      .getUserMedia(constraints)
+      .then((stream) => {
+        clearTimeout(timer);
+        resolve(stream);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+};
+
 export const HandCamera: React.FC<HandCameraProps> = ({
   onLandmarksDetected,
   onTrackingLost,
@@ -34,6 +62,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const aiEngineRef = useRef<any>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
@@ -42,6 +71,9 @@ export const HandCamera: React.FC<HandCameraProps> = ({
   const [handDetected, setHandDetected] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [isResettingAI, setIsResettingAI] = useState(false);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState(false);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
 
   // Diagnostics State
   const [errorType, setErrorType] = useState<ErrorType | null>(null);
@@ -49,6 +81,9 @@ export const HandCamera: React.FC<HandCameraProps> = ({
   const [errorDescription, setErrorDescription] = useState<string>('');
   const [detectedDevices, setDetectedDevices] = useState<MediaDeviceInfo[]>([]);
   const [activeTab, setActiveTab] = useState<'CHROME' | 'FIREFOX' | 'WINDOWS'>('CHROME');
+
+  const isAIEvaluatingRef = useRef<boolean>(false);
+  const lastResultsTimestampRef = useRef<number>(Date.now());
 
   // Keep callback refs up to date
   const onLandmarksDetectedRef = useRef(onLandmarksDetected);
@@ -59,6 +94,47 @@ export const HandCamera: React.FC<HandCameraProps> = ({
     onTrackingLostRef.current = onTrackingLost;
   }, [onLandmarksDetected, onTrackingLost]);
 
+  // Reset MediaPipe WASM Engine manually
+  const handleResetAIEngine = () => {
+    setIsResettingAI(true);
+    resetEMAFilter();
+    console.log('>>> Manual Reset of MediaPipe Hands Engine requested...');
+
+    if (aiEngineRef.current) {
+      try {
+        aiEngineRef.current.close();
+      } catch (e) {
+        console.warn('Error closing engine during manual reset:', e);
+      }
+      aiEngineRef.current = null;
+    }
+    offscreenCanvasRef.current = null;
+
+    setTimeout(() => {
+      setIsResettingAI(false);
+      setResetSuccessMessage(true);
+      setRetryCount((prev) => prev + 1);
+      setTimeout(() => setResetSuccessMessage(false), 3000);
+    }, 400);
+  };
+
+  // Automated AI Stall Watchdog: Monitors AI frame timestamps and auto-resets on freeze (>1600ms)
+  useEffect(() => {
+    if (!cameraActive || isSimulating) return;
+
+    const watchdogInterval = setInterval(() => {
+      const elapsed = Date.now() - lastResultsTimestampRef.current;
+      if (elapsed > 1600 && !isResettingAI) {
+        console.warn(`[AI Watchdog] MediaPipe response stalled for ${elapsed}ms. Auto-healing...`);
+        lastResultsTimestampRef.current = Date.now();
+        isAIEvaluatingRef.current = false;
+        handleResetAIEngine();
+      }
+    }, 400);
+
+    return () => clearInterval(watchdogInterval);
+  }, [cameraActive, isSimulating, isResettingAI]);
+
   // Enumerate video devices
   const checkVideoDevices = async () => {
     try {
@@ -66,6 +142,9 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoInputs = devices.filter((d) => d.kind === 'videoinput');
         setDetectedDevices(videoInputs);
+        if (videoInputs.length > 0 && !selectedDeviceId) {
+          setSelectedDeviceId(videoInputs[0].deviceId);
+        }
         return videoInputs;
       }
     } catch (e) {
@@ -119,8 +198,8 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           ];
 
           ctx.beginPath();
-          ctx.moveTo((1 - 0.35) * canvas.width, 0.4 * canvas.height);
-          ctx.lineTo((1 - 0.65) * canvas.width, 0.4 * canvas.height);
+          ctx.moveTo(0.35 * canvas.width, 0.4 * canvas.height);
+          ctx.lineTo(0.65 * canvas.width, 0.4 * canvas.height);
           ctx.strokeStyle = 'rgba(0, 242, 254, 0.4)';
           ctx.lineWidth = 4;
           ctx.stroke();
@@ -170,86 +249,140 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           return;
         }
 
-        // 1. Get Direct HTML5 MediaStream with multi-stage retry & constraint fallback
+        // 1. Aggressive Multi-Stage Camera Acquisition (Fastest { video: true } first)
         let stream: MediaStream | null = null;
         let lastError: any = null;
 
-        for (let attempt = 0; attempt < 2; attempt++) {
+        // Stage 1: Pure unconstrained video stream (Fastest, 0 constraints, 100% compatible)
+        try {
+          stream = await getUserMediaWithTimeout({ video: true }, 3000);
+        } catch (e1: any) {
+          lastError = e1;
+        }
+
+        // Stage 2: User selected deviceId (only if non-empty valid deviceId)
+        if (!stream && selectedDeviceId && selectedDeviceId.trim() !== '') {
           try {
-            stream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                width: { ideal: 640 },
-                height: { ideal: 480 },
-                facingMode: 'user',
-              },
-            });
-            if (stream) break;
-          } catch (err1: any) {
-            lastError = err1;
-            try {
-              stream = await navigator.mediaDevices.getUserMedia({ video: true });
-              if (stream) break;
-            } catch (err2: any) {
-              lastError = err2;
-            }
-          }
-          if (attempt < 1) {
-            await new Promise((resolve) => setTimeout(resolve, 500));
+            stream = await getUserMediaWithTimeout(
+              { video: { deviceId: selectedDeviceId } },
+              3000
+            );
+          } catch (e0) {
+            lastError = e0;
           }
         }
 
-        // Try direct deviceId binding for virtual / shared camera drivers (Zalo, OBS, Messenger)
+        // Stage 3: Ideal 640x480 resolution stream
+        if (!stream) {
+          try {
+            stream = await getUserMediaWithTimeout(
+              {
+                video: {
+                  width: { ideal: 640 },
+                  height: { ideal: 480 },
+                },
+              },
+              3000
+            );
+          } catch (e3: any) {
+            lastError = e3;
+          }
+        }
+
+        // Stage 4: Iterate exact deviceIds for virtual/shared camera drivers
         if (!stream && availableDevices.length > 0) {
           for (const dev of availableDevices) {
             try {
-              stream = await navigator.mediaDevices.getUserMedia({
-                video: { deviceId: { exact: dev.deviceId } }
-              });
-              if (stream) break;
-            } catch (e1) {
+              stream = await getUserMediaWithTimeout(
+                { video: { deviceId: { exact: dev.deviceId } } },
+                3000
+              );
+              if (stream) {
+                setSelectedDeviceId(dev.deviceId);
+                break;
+              }
+            } catch (d1) {
               try {
-                stream = await navigator.mediaDevices.getUserMedia({
-                  video: { deviceId: dev.deviceId }
-                });
-                if (stream) break;
-              } catch (e2) {}
+                stream = await getUserMediaWithTimeout(
+                  { video: { deviceId: dev.deviceId } },
+                  3000
+                );
+                if (stream) {
+                  setSelectedDeviceId(dev.deviceId);
+                  break;
+                }
+              } catch (d2) {}
             }
+          }
+        }
+
+        // Stage 5: Ultra-basic fallback video constraint with 3s timeout
+        if (!stream) {
+          try {
+            stream = await getUserMediaWithTimeout(
+              { video: { width: { max: 320 }, height: { max: 240 } } },
+              3000
+            );
+          } catch (e5: any) {
+            lastError = e5;
           }
         }
 
         if (!stream) {
           const err2 = lastError || new Error('Unable to connect to camera');
-          console.error('Camera getUserMedia error after multi-stage retries:', err2);
-          
-          if (err2.name === 'NotReadableError' || err2.name === 'TrackStartError' || err2.name === 'AbortError') {
-            console.log('>>> Hardware locked by Zalo/Messenger/OBS. Auto-activating 3D Simulation Mode...');
-            setModelLoading(false);
-            setErrorType(null);
-            setIsSimulating(true);
-            return;
-          }
+          console.error('Camera getUserMedia error after aggressive retries:', err2);
 
           setModelLoading(false);
-          if (err2.name === 'NotAllowedError' || err2.name === 'PermissionDeniedError') {
+          if (
+            err2.name === 'NotAllowedError' ||
+            err2.name === 'PermissionDeniedError'
+          ) {
             setErrorType('PERMISSION_DENIED');
             setErrorTitle('Quyền truy cập Camera bị từ chối');
-            setErrorDescription('Trình duyệt hoặc Windows đang chặn quyền truy cập camera. Hệ thống đang tự động thử xin lại...');
-          } else if (err2.name === 'NotFoundError' || err2.name === 'DevicesNotFoundError' || availableDevices.length === 0) {
+            setErrorDescription(
+              'Trình duyệt hoặc Windows đang chặn quyền truy cập camera. Bấm "Xin Lại Quyền" bên dưới.'
+            );
+          } else if (
+            err2.name === 'NotFoundError' ||
+            err2.name === 'DevicesNotFoundError' ||
+            availableDevices.length === 0
+          ) {
             setErrorType('NOT_FOUND');
             setErrorTitle('Không tìm thấy thiết bị Webcam nào');
-            setErrorDescription('Kiểm tra cáp USB hoặc phím tắt bật camera phần ứng trên máy tính.');
+            setErrorDescription(
+              'Kiểm tra cáp USB hoặc phím tắt bật camera phần cứng trên máy tính.'
+            );
           } else {
             setErrorType('HARDWARE_IN_USE');
-            setErrorTitle('Camera đang bị Zalo/Messenger/OBS chiếm quyền phần cứng');
-            setErrorDescription('Hệ thống đã chuẩn bị sẵn Chế độ Mô phỏng 3D bên dưới để bạn test toàn bộ tính năng mượt mà!');
+            setErrorTitle('Thiết bị Camera đang bị ứng dụng khác chiếm dụng');
+            setErrorDescription(
+              'Camera của bạn có thể đang mở ở Zalo, Messenger, OBS, Zoom, hoặc Camera Windows. Bạn có thể Ép Bật lại hoặc chọn Chế Độ Mô Phỏng Demo bên dưới.'
+            );
           }
           return;
         }
 
         mediaStreamRef.current = stream;
+        setIsSimulating(false);
         setErrorType(null);
         setErrorTitle('');
         setErrorDescription('');
+
+        // Stream Health Monitor & Track listeners
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+          videoTrack.onended = () => {
+            console.warn('Camera video track ended unexpectedly. Re-acquiring...');
+            setCameraActive(false);
+            setRetryCount((prev) => prev + 1);
+          };
+          videoTrack.onmute = () => {
+            console.warn('Camera video track muted.');
+          };
+          videoTrack.onunmute = () => {
+            console.log('Camera video track unmuted.');
+          };
+        }
 
         // Bind stream to video element
         const video = videoRef.current;
@@ -259,34 +392,15 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             await video.play();
           } catch (e) {}
           setCameraActive(true);
+          // Decouple Camera Display: Remove loading spinner as soon as video plays
+          setModelLoading(false);
         }
 
-        // 2. Resolve MediaPipe Hands class (CDN window or npm dynamic import)
-        let HandsClass = window.Hands || window.Holistic;
-        if (!HandsClass) {
-          let retries = 0;
-          while (!window.Hands && !window.Holistic && retries < 6) {
-            await new Promise((resolve) => setTimeout(resolve, 300));
-            retries++;
-          }
-          HandsClass = window.Hands || window.Holistic;
-        }
-
-        if (!HandsClass) {
-          try {
-            const mp = await import('@mediapipe/hands');
-            HandsClass = mp.Hands || (mp as any).default?.Hands;
-          } catch (e) {
-            console.warn('Failed to dynamically import @mediapipe/hands:', e);
-          }
-        }
-
-        if (!HandsClass) {
-          throw new Error('Không thể nạp mô hình MediaPipe AI từ CDN/NPM. Vui lòng kiểm tra kết nối mạng.');
-        }
-
+        // 2. Results callback
         const handleResults = (results: any) => {
           if (!active) return;
+          isAIEvaluatingRef.current = false;
+          lastResultsTimestampRef.current = Date.now();
 
           const canvas = canvasRef.current;
           if (!canvas) return;
@@ -294,10 +408,10 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           const ctx = canvas.getContext('2d');
           if (!ctx) return;
 
-          const video = videoRef.current;
-          if (video && video.videoWidth > 0 && video.videoHeight > 0) {
-            if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
-            if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
+          const v = videoRef.current;
+          if (v && v.videoWidth > 0 && v.videoHeight > 0) {
+            if (canvas.width !== v.videoWidth) canvas.width = v.videoWidth;
+            if (canvas.height !== v.videoHeight) canvas.height = v.videoHeight;
           }
 
           ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -307,39 +421,71 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           let pose: Landmark[] | null = null;
 
           if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-            results.multiHandLandmarks.forEach((landmarks: Landmark[], idx: number) => {
-              if (!landmarks || landmarks.length !== 21) return;
-              const handedness = results.multiHandedness?.[idx]?.label;
-              if (handedness === 'Left') {
-                leftHand = landmarks;
-              } else if (handedness === 'Right') {
-                rightHand = landmarks;
-              } else {
-                if (!rightHand) rightHand = landmarks;
-                else if (!leftHand) leftHand = landmarks;
+            results.multiHandLandmarks.forEach(
+              (landmarks: Landmark[], idx: number) => {
+                if (!landmarks || landmarks.length !== 21) return;
+                const handedness = results.multiHandedness?.[idx]?.label;
+                if (handedness === 'Left') {
+                  leftHand = landmarks;
+                } else if (handedness === 'Right') {
+                  rightHand = landmarks;
+                } else {
+                  if (!rightHand) rightHand = landmarks;
+                  else if (!leftHand) leftHand = landmarks;
+                }
+                drawHandSkeleton(
+                  ctx,
+                  landmarks,
+                  canvas.width,
+                  canvas.height,
+                  isRecording
+                );
               }
-              drawHandSkeleton(ctx, landmarks, canvas.width, canvas.height, isRecording);
-            });
+            );
           }
 
-          if (results.rightHandLandmarks && results.rightHandLandmarks.length === 21) {
+          if (
+            results.rightHandLandmarks &&
+            results.rightHandLandmarks.length === 21
+          ) {
             rightHand = results.rightHandLandmarks;
-            if (rightHand) drawHandSkeleton(ctx, rightHand, canvas.width, canvas.height, isRecording);
+            drawHandSkeleton(
+              ctx,
+              rightHand,
+              canvas.width,
+              canvas.height,
+              isRecording
+            );
           }
-          if (results.leftHandLandmarks && results.leftHandLandmarks.length === 21) {
+          if (
+            results.leftHandLandmarks &&
+            results.leftHandLandmarks.length === 21
+          ) {
             leftHand = results.leftHandLandmarks;
-            if (leftHand) drawHandSkeleton(ctx, leftHand, canvas.width, canvas.height, isRecording);
+            drawHandSkeleton(
+              ctx,
+              leftHand,
+              canvas.width,
+              canvas.height,
+              isRecording
+            );
           }
 
           if (results.poseLandmarks) {
             pose = results.poseLandmarks;
-            if (pose && pose[11] && pose[12]) {
-              const leftShoulder = pose[11];
-              const rightShoulder = pose[12];
+            const leftShoulder = pose[11];
+            const rightShoulder = pose[12];
 
+            if (leftShoulder && rightShoulder) {
               ctx.beginPath();
-              ctx.moveTo((1 - leftShoulder.x) * canvas.width, leftShoulder.y * canvas.height);
-              ctx.lineTo((1 - rightShoulder.x) * canvas.width, rightShoulder.y * canvas.height);
+              ctx.moveTo(
+                leftShoulder.x * canvas.width,
+                leftShoulder.y * canvas.height
+              );
+              ctx.lineTo(
+                rightShoulder.x * canvas.width,
+                rightShoulder.y * canvas.height
+              );
               ctx.strokeStyle = 'rgba(0, 242, 254, 0.4)';
               ctx.lineWidth = 4;
               ctx.stroke();
@@ -351,50 +497,83 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             onLandmarksDetectedRef.current(leftHand, rightHand, pose);
           } else {
             setHandDetected(false);
+            resetEMAFilter();
             onTrackingLostRef.current();
           }
         };
 
-        if (!aiEngineRef.current) {
-          console.log('Initializing MediaPipe Hands Engine...');
-          const hands = new HandsClass({
-            locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
-          });
-          hands.setOptions({
-            maxNumHands: 2,
-            modelComplexity: 1,
-            minDetectionConfidence: 0.2,
-            minTrackingConfidence: 0.2,
-          });
-          hands.onResults(handleResults);
-          aiEngineRef.current = hands;
-        }
+        // Helper: Lazy-ensure MediaPipe Hands Engine instance
+        const ensureEngine = () => {
+          if (aiEngineRef.current) return aiEngineRef.current;
+          const HandsClass = (window as any).Hands || (window as any).Holistic;
+          if (HandsClass) {
+            console.log('>>> Instantiating Local MediaPipe Hands Engine...');
+            const engine = new HandsClass({
+              locateFile: (file: string) => `/mediapipe/hands/${file}`,
+            });
+            engine.setOptions({
+              maxNumHands: 2,
+              modelComplexity: 1,
+              minDetectionConfidence: 0.1,
+              minTrackingConfidence: 0.1,
+            });
+            engine.onResults(handleResults);
+            aiEngineRef.current = engine;
+            return engine;
+          }
+          return null;
+        };
 
-        setModelLoading(false);
+        // Try initializing engine asynchronously in background
+        setTimeout(() => {
+          ensureEngine();
+        }, 10);
 
-        // 3. Direct 30 FPS RequestAnimationFrame Processing Loop
+        // 3. Continuous 30 FPS Processing Loop via Offscreen 2D Canvas Bitmap Snapshot
         let isProcessing = false;
         let lastFrameTime = 0;
 
         const processFrame = async () => {
           if (!active) return;
 
+          // Strict Backpressure Guard: Skip frame if previous frame is still evaluating in Web Worker
+          if (isAIEvaluatingRef.current) {
+            if (active) animationFrameId = requestAnimationFrame(processFrame);
+            return;
+          }
+
           const now = Date.now();
           const v = videoRef.current;
+          const engine = ensureEngine();
+
           if (
             v &&
             v.readyState >= 2 &&
             v.videoWidth > 0 &&
-            aiEngineRef.current &&
+            engine &&
             !isProcessing &&
             now - lastFrameTime >= FRAME_INTERVAL_MS
           ) {
             lastFrameTime = now;
             isProcessing = true;
+            isAIEvaluatingRef.current = true;
             try {
-              await aiEngineRef.current.send({ image: v });
+              if (!offscreenCanvasRef.current) {
+                offscreenCanvasRef.current = document.createElement('canvas');
+              }
+              const offCanvas = offscreenCanvasRef.current;
+              if (offCanvas.width !== v.videoWidth)
+                offCanvas.width = v.videoWidth;
+              if (offCanvas.height !== v.videoHeight)
+                offCanvas.height = v.videoHeight;
+              const offCtx = offCanvas.getContext('2d');
+              if (offCtx) {
+                offCtx.drawImage(v, 0, 0, v.videoWidth, v.videoHeight);
+                await engine.send({ image: offCanvas });
+              }
             } catch (e) {
               console.warn('Frame process warning:', e);
+              isAIEvaluatingRef.current = false;
             }
             isProcessing = false;
           }
@@ -407,13 +586,6 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         animationFrameId = requestAnimationFrame(processFrame);
       } catch (err: any) {
         console.error('Error starting camera/AI:', err);
-        if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-          mediaStreamRef.current = null;
-        }
-        if (videoRef.current) {
-          videoRef.current.srcObject = null;
-        }
         setModelLoading(false);
         setErrorType('UNKNOWN');
         setErrorTitle('Không thể kết nối với Camera');
@@ -432,19 +604,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [isRecording, isSimulating, retryCount]);
-
-  // Auto-recovery polling when camera is busy (HARDWARE_IN_USE) or error occurs
-  useEffect(() => {
-    if (!errorType || isSimulating) return;
-
-    const timer = setInterval(() => {
-      // Periodically trigger camera re-initialization automatically
-      setRetryCount((prev) => prev + 1);
-    }, 3500);
-
-    return () => clearInterval(timer);
-  }, [errorType, isSimulating]);
+  }, [isRecording, isSimulating, retryCount, selectedDeviceId]);
 
   // Clean up WASM model on unmount
   useEffect(() => {
@@ -460,24 +620,73 @@ export const HandCamera: React.FC<HandCameraProps> = ({
     };
   }, []);
 
+  // Handle Tab Focus Visibility Re-activation
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && cameraActive && videoRef.current) {
+        if (videoRef.current.paused) {
+          videoRef.current.play().catch(console.warn);
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [cameraActive]);
+
+  // Handle Hardware Device Change Events (e.g. physical laptop camera switch flipped ON/OFF)
+  useEffect(() => {
+    const handleDeviceChange = async () => {
+      console.log('>>> Hardware devicechange event detected (Physical Switch / USB)...');
+      await checkVideoDevices();
+      // Auto-retry connection when physical hardware switch is flipped back ON
+      if (!cameraActive) {
+        setRetryCount((prev) => prev + 1);
+      }
+    };
+
+    if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    }
+    return () => {
+      if (navigator.mediaDevices && navigator.mediaDevices.removeEventListener) {
+        navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+      }
+    };
+  }, [cameraActive]);
+
+  const handleForceRetryCamera = async () => {
+    setIsSimulating(false);
+    setErrorType(null);
+    setModelLoading(true);
+    try {
+      const directStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (directStream && videoRef.current) {
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        }
+        mediaStreamRef.current = directStream;
+        videoRef.current.srcObject = directStream;
+        await videoRef.current.play();
+        setCameraActive(true);
+        setModelLoading(false);
+        return;
+      }
+    } catch (e) {
+      console.warn('Direct user gesture getUserMedia warning:', e);
+    }
+    setRetryCount((prev) => prev + 1);
+  };
+
   const handleRequestPermissionAgain = async () => {
     try {
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
-        mediaStreamRef.current = null;
-      }
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
-      setErrorTitle('Đang kết nối lại Camera...');
-      setErrorType(null);
-      setModelLoading(true);
-      setRetryCount((prev) => prev + 1);
-    } catch (e: any) {
+      setErrorTitle('Đang xin cấp lại quyền...');
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      stream.getTracks().forEach((track) => track.stop());
+      handleForceRetryCamera();
+    } catch (e) {
       console.warn('Permission rejected:', e);
-      setErrorType('PERMISSION_DENIED');
-      setErrorTitle('Quyền truy cập Camera bị từ chối');
-      setErrorDescription('Vui lòng nhấp vào biểu tượng 🔒 ở góc đường dẫn để cho phép Camera.');
     }
   };
 
@@ -511,7 +720,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
       {modelLoading && !isSimulating && !errorType && (
         <div className="camera-placeholder">
           <Loader2 className="animate-spin" size={48} style={{ color: 'var(--color-primary)' }} />
-          <p style={{ marginTop: '12px' }}>Đang kết nối Camera & nạp mô hình AI MediaPipe Hands...</p>
+          <p style={{ marginTop: '12px' }}>Đang kết nối Camera Thật...</p>
         </div>
       )}
 
@@ -538,18 +747,35 @@ export const HandCamera: React.FC<HandCameraProps> = ({
 
           {detectedDevices.length > 0 ? (
             <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', fontSize: '0.82rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-primary)', fontWeight: '600', marginBottom: '4px' }}>
-                <Monitor size={14} /> Tìm thấy {detectedDevices.length} thiết bị VideoInput:
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-primary)', fontWeight: '600', marginBottom: '6px' }}>
+                <Monitor size={14} /> Tìm thấy {detectedDevices.length} thiết bị Camera:
               </div>
-              <ul style={{ margin: 0, paddingLeft: '18px', color: 'rgba(255,255,255,0.8)' }}>
+              <select
+                value={selectedDeviceId}
+                onChange={(e) => {
+                  setSelectedDeviceId(e.target.value);
+                  handleForceRetryCamera();
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  background: '#090d16',
+                  color: '#00f2fe',
+                  border: '1px solid var(--color-primary)',
+                  borderRadius: '6px',
+                  fontSize: '0.82rem',
+                }}
+              >
                 {detectedDevices.map((dev, idx) => (
-                  <li key={idx}>{dev.label || `Thiết bị Camera #${idx + 1}`}</li>
+                  <option key={dev.deviceId || idx} value={dev.deviceId}>
+                    {dev.label || `Thiết bị Camera #${idx + 1}`}
+                  </option>
                 ))}
-              </ul>
+              </select>
             </div>
           ) : (
             <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', fontSize: '0.82rem', color: '#fca5a5' }}>
-              ⚠️ Không phát hiện webcam phần cứng nào kết nối với hệ thống.
+              ⚠️ Chưa quét thấy webcam phần cứng nào kết nối.
             </div>
           )}
 
@@ -588,7 +814,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
                     Đổi <b>Camera</b> sang <b>Cho phép (Allow)</b>.
                   </li>
                   <li>
-                    Bấm nút <b>Xin Lại Quyền Camera</b> bên dưới.
+                    Bấm nút <b>⚡ Ép Bật Camera Thật</b> bên dưới.
                   </li>
                 </ol>
               )}
@@ -620,9 +846,12 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <button className="btn btn-primary btn-small" onClick={handleRequestPermissionAgain} style={{ gap: '6px', justifyContent: 'center' }}>
-              <CheckCircle2 size={15} /> Xin Lại Quyền Camera
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+            <button className="btn btn-primary btn-small" onClick={handleForceRetryCamera} style={{ gap: '6px', justifyContent: 'center' }}>
+              <Zap size={15} /> Ép Bật Camera Thật
+            </button>
+            <button className="btn btn-secondary btn-small" onClick={handleRequestPermissionAgain} style={{ gap: '6px', justifyContent: 'center' }}>
+              <CheckCircle2 size={15} /> Xin Lại Quyền
             </button>
             <button
               className="btn btn-secondary btn-small"
@@ -632,24 +861,59 @@ export const HandCamera: React.FC<HandCameraProps> = ({
               }}
               style={{ gap: '6px', justifyContent: 'center', borderColor: '#f59e0b', color: '#f59e0b' }}
             >
-              <Play size={15} /> Bật Chế Độ Demo
+              <Play size={15} /> Bật Demo
             </button>
           </div>
         </div>
       )}
 
-      {/* HUD display */}
+      {/* HUD display with Manual AI Recovery Button */}
       {(cameraActive || isSimulating) && (
-        <div className="camera-hud">
+        <div className="camera-hud" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <div className="camera-badge" style={isSimulating ? { borderColor: '#f59e0b', color: '#f59e0b' } : {}}>
             <CameraIcon size={14} style={{ color: isSimulating ? '#f59e0b' : 'var(--color-primary)' }} />
             <span>{isSimulating ? 'CHẾ ĐỘ MÔ PHỎNG DEMO' : 'TRACKING SẴN SÀNG'}</span>
           </div>
 
+          {/* Prominent Recovery Button */}
+          {!isSimulating && (
+            <button
+              onClick={handleResetAIEngine}
+              disabled={isResettingAI}
+              style={{
+                background: 'rgba(0, 242, 254, 0.2)',
+                border: '1px solid var(--color-primary)',
+                color: '#00f2fe',
+                padding: '4px 12px',
+                borderRadius: '16px',
+                fontSize: '0.78rem',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                cursor: 'pointer',
+                backdropFilter: 'blur(4px)',
+                boxShadow: '0 0 10px rgba(0, 242, 254, 0.3)',
+                transition: 'all 0.2s ease',
+              }}
+              title="Nhấp vào đây nếu AI không phát hiện được tay để khởi động lại bộ bắt khớp"
+            >
+              <RotateCcw size={13} className={isResettingAI ? 'animate-spin' : ''} />
+              <span>{isResettingAI ? 'Đang Khôi Phục...' : '🔄 Khôi Phục AI Tracking'}</span>
+            </button>
+          )}
+
           {handDetected && !isSimulating && (
             <div className="camera-badge" style={{ borderColor: 'var(--color-success)', color: 'var(--color-success)' }}>
               <Hand size={14} />
               <span>ĐÃ BẮT ĐƯỢC 21 KHỚP TAY</span>
+            </div>
+          )}
+
+          {resetSuccessMessage && (
+            <div className="camera-badge animate-bounce" style={{ borderColor: '#10b981', color: '#10b981', background: 'rgba(16, 185, 129, 0.2)' }}>
+              <CheckCircle2 size={14} />
+              <span>ĐÃ KHÔI PHỤC BỘ NHẬN DIỆN AI!</span>
             </div>
           )}
 
@@ -662,7 +926,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         </div>
       )}
 
-      {/* Hand Positioning Helper Banner */}
+      {/* Hand Positioning Helper & Instant Recovery Floating Banner */}
       {!handDetected && cameraActive && !isSimulating && (
         <div
           style={{
@@ -670,21 +934,41 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             bottom: '12px',
             left: '50%',
             transform: 'translateX(-50%)',
-            background: 'rgba(15, 23, 42, 0.85)',
-            border: '1px solid rgba(0, 242, 254, 0.3)',
+            background: 'rgba(15, 23, 42, 0.9)',
+            border: '1px solid rgba(0, 242, 254, 0.4)',
             color: '#00f2fe',
-            padding: '6px 14px',
-            borderRadius: '20px',
-            fontSize: '0.8rem',
+            padding: '8px 16px',
+            borderRadius: '24px',
+            fontSize: '0.82rem',
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
+            gap: '10px',
             zIndex: 10,
-            backdropFilter: 'blur(4px)',
-            pointerEvents: 'none',
+            backdropFilter: 'blur(6px)',
+            boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
           }}
         >
-          ✋ Đưa cả bàn tay (gồm cổ tay và 5 ngón tay) cách camera khoảng 30 - 40 cm
+          <span>✋ Đưa cả bàn tay (cổ tay + 5 ngón) cách camera 30-40cm</span>
+          <button
+            onClick={handleResetAIEngine}
+            disabled={isResettingAI}
+            style={{
+              background: 'linear-gradient(135deg, #00f2fe 0%, #4facfe 100%)',
+              color: '#090d16',
+              border: 'none',
+              padding: '4px 10px',
+              borderRadius: '12px',
+              fontWeight: 'bold',
+              fontSize: '0.75rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            <RotateCcw size={12} className={isResettingAI ? 'animate-spin' : ''} />
+            Khôi Phục AI Ngay
+          </button>
         </div>
       )}
     </div>

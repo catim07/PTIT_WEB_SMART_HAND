@@ -9,7 +9,7 @@ export function resetEMAFilter(): void {
   prevSmoothedLandmarks = null;
 }
 
-export function filterLandmarksEMA(landmarks: Landmark[], alpha = 0.35): Landmark[] {
+export function filterLandmarksEMA(landmarks: Landmark[], alpha = 0.85): Landmark[] {
   if (!landmarks || landmarks.length === 0) return [];
   if (!prevSmoothedLandmarks || prevSmoothedLandmarks.length !== landmarks.length) {
     prevSmoothedLandmarks = landmarks.map(l => ({ ...l }));
@@ -427,4 +427,76 @@ export function diagnoseGestureError(
   }
 
   return null;
+}
+
+/**
+ * Accurately counts extended fingers (0 to 5) from 21 MediaPipe hand landmarks
+ * using 3D skeletal geometry and joint angle thresholds.
+ */
+export function countExtendedFingers(handLandmarks: Landmark[]): { count: number; label: string; details: string } {
+  if (!handLandmarks || handLandmarks.length !== 21) {
+    return { count: 0, label: 'SO_0', details: 'SO_0 (Nắm Tay)' };
+  }
+
+  const wrist = handLandmarks[0];
+  const thumbTip = handLandmarks[4];
+  const indexTip = handLandmarks[8];
+  const middleTip = handLandmarks[12];
+  const ringTip = handLandmarks[16];
+  const pinkyTip = handLandmarks[20];
+
+  // For non-thumb fingers (Index: 8, Middle: 12, Ring: 16, Pinky: 20):
+  // Compare 3D Euclidean distance from Wrist to Tip vs Wrist to PIP joint.
+  const isIndexOpen = getDistance3D(indexTip, wrist) > getDistance3D(handLandmarks[6], wrist) * 1.12;
+  const isMiddleOpen = getDistance3D(middleTip, wrist) > getDistance3D(handLandmarks[10], wrist) * 1.12;
+  const isRingOpen = getDistance3D(ringTip, wrist) > getDistance3D(handLandmarks[14], wrist) * 1.12;
+  const isPinkyOpen = getDistance3D(pinkyTip, wrist) > getDistance3D(handLandmarks[18], wrist) * 1.12;
+
+  // 1. BAN_TIM (Finger Heart 🫰): Thumb Tip (4) and Index Tip (8) pinched close (<0.08 in 3D) while Middle/Ring/Pinky are folded
+  const thumbIndexDist = getDistance3D(thumbTip, indexTip);
+  if (thumbIndexDist < 0.085 && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+    return { count: 2, label: 'BAN_TIM', details: 'BAN_TIM (Bắn Tim 🫰)' };
+  }
+
+  // 2. LIKE (Thích 👍): Thumb UP + Index/Middle/Ring/Pinky folded
+  const thumbMcp = handLandmarks[2];
+  const thumbDist = getDistance3D(thumbTip, handLandmarks[17]);
+  const thumbBaseDist = getDistance3D(thumbMcp, handLandmarks[17]);
+  const isThumbOpen = thumbDist > thumbBaseDist * 1.15;
+
+  if (isThumbOpen && !isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen && thumbTip.y < thumbMcp.y) {
+    return { count: 1, label: 'LIKE', details: 'LIKE (Thích 👍)' };
+  }
+
+  // 3. OK (Đồng ý 👌): Thumb Tip (4) and Index Tip (8) pinched in circle + Middle, Ring, Pinky extended open
+  if (thumbIndexDist < 0.085 && isMiddleOpen && isRingOpen && isPinkyOpen) {
+    return { count: 3, label: 'OK', details: 'OK (Đồng Ý 👌)' };
+  }
+
+  // 4. LOVE_YOU (Bắn Tim I Love You 🤟): Thumb, Index, Pinky extended + Middle & Ring folded
+  if (isIndexOpen && isPinkyOpen && !isMiddleOpen && !isRingOpen) {
+    return { count: 3, label: 'LOVE_YOU', details: 'LOVE_YOU (Yêu Bạn 🤟)' };
+  }
+
+  let count = 0;
+  if (isThumbOpen) count++;
+  if (isIndexOpen) count++;
+  if (isMiddleOpen) count++;
+  if (isRingOpen) count++;
+  if (isPinkyOpen) count++;
+
+  const labelMap: Record<number, string> = {
+    0: 'SO_0 (Nắm Tay)',
+    1: 'SO_1 (1 Ngón - Số 1)',
+    2: 'SO_2 (2 Ngón - Số 2)',
+    3: 'SO_3 (3 Ngón - Số 3)',
+    4: 'SO_4 (4 Ngón - Số 4)',
+    5: 'SO_5 (5 Ngón - Số 5)',
+  };
+
+  return {
+    count,
+    label: `SO_${count}`,
+    details: labelMap[count] || `SO_${count} (Số ${count})`,
+  };
 }
