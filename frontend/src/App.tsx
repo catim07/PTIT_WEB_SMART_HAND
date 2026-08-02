@@ -144,7 +144,10 @@ function App() {
       return;
     }
 
-    const cleanLabel = rawLabel.split(' ')[0].split('(')[0].trim().toUpperCase();
+    let cleanLabel = rawLabel.split(' ')[0].split('(')[0].trim().toUpperCase();
+    if (cleanLabel.startsWith('CHUU_')) {
+      cleanLabel = cleanLabel.replace('CHUU_', '');
+    }
     if (!cleanLabel || cleanLabel.startsWith('SO_')) return;
 
     const now = Date.now();
