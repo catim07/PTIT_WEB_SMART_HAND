@@ -21,7 +21,7 @@ import { QuickCommunicationCards } from './components/QuickCommunicationCards';
 import { LiveChatHub, type ChatMessage } from './components/LiveChatHub';
 
 import { type Landmark, type GestureSample, type GestureTemplate, type SystemSettings, type RecognitionStats } from './types';
-import { extractFeatures, countExtendedFingers, resetEMAFilter } from './utils/algorithm';
+import { extractFeatures, countExtendedFingers, detectDualHandGesture, resetEMAFilter } from './utils/algorithm';
 import { drawHandSkeleton } from './utils/drawing';
 import * as api from './utils/api';
 
@@ -1609,7 +1609,7 @@ function App() {
                 CHỌN NHANH TỪ DANH SÁCH CỬ CHỈ ĐÚNG:
               </span>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto', padding: '4px' }}>
-                {['BAN_TIM', 'LIKE', 'CAM_ON', 'XIN_LOI', 'TAM_BIET', 'SO_5', 'SO_4', 'SO_3', 'SO_2', 'SO_1', 'OK', 'LOVE_YOU', 'SOS', 'HELLO', 'UONG_NUOC', 'AN_COM', ...templates.map((t) => t.label)]
+                {['CHUU_A', 'CHUU_B', 'CHUU_C', 'CHUU_D', 'CHUU_E', 'CHUU_G', 'CHUU_H', 'CHUU_I', 'CHUU_L', 'CHUU_M', 'CHUU_N', 'CHUU_O', 'CHUU_U', 'CHUU_V', 'CHUU_W', 'CHUU_Y', 'BAN_TIM', 'LIKE', 'CAM_ON', 'XIN_LOI', 'TAM_BIET', 'SO_5', 'SO_4', 'SO_3', 'SO_2', 'SO_1', 'OK', 'LOVE_YOU', 'SOS', 'HELLO', 'UONG_NUOC', 'AN_COM', ...templates.map((t) => t.label)]
                   .filter((val, idx, self) => self.indexOf(val) === idx)
                   .map((itemLabel) => (
                     <button
