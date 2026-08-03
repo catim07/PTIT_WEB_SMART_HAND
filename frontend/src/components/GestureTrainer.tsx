@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, Zap, HelpCircle, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Zap, HelpCircle, RefreshCw, Edit3, RotateCcw } from 'lucide-react';
 import { type GestureSample, type GestureTemplate } from '../types';
 
 interface GestureTrainerProps {
@@ -13,6 +13,9 @@ interface GestureTrainerProps {
   onTriggerOptimize: () => Promise<void>;
   isRecording: boolean;
   recordingProgress: number;
+  labelMappings?: Record<string, string>;
+  onUpdateLabelMapping?: (originalLabel: string, newLabel: string) => void;
+  onResetLabelMapping?: (originalLabel: string) => void;
 }
 
 export const GestureTrainer: React.FC<GestureTrainerProps> = ({
@@ -26,6 +29,9 @@ export const GestureTrainer: React.FC<GestureTrainerProps> = ({
   onTriggerOptimize,
   isRecording,
   recordingProgress,
+  labelMappings = {},
+  onUpdateLabelMapping,
+  onResetLabelMapping,
 }) => {
   const [newLabel, setNewLabel] = useState('');
   const [recordMode, setRecordMode] = useState<'single' | 'burst'>('burst');
@@ -90,8 +96,18 @@ export const GestureTrainer: React.FC<GestureTrainerProps> = ({
     }
   };
 
+  const defaultHeuristics = [
+    'SO_0', 'SO_1', 'SO_2', 'SO_3', 'SO_4', 'SO_5',
+    'LIKE', 'BAN_TIM', 'UONG_NUOC', 'OK', 'LOVE_YOU',
+    'CHUU_A', 'CHUU_B', 'CHUU_C', 'CHUU_D', 'CHUU_E', 'CHUU_G', 'CHUU_H', 'CHUU_I', 'CHUU_L', 'CHUU_M', 'CHUU_N', 'CHUU_O', 'CHUU_U', 'CHUU_V', 'CHUU_W', 'CHUU_Y'
+  ];
+
   const registeredLabels = Array.from(
-    new Set([...Object.keys(sampleCounts), ...Object.keys(templateCounts)])
+    new Set([
+      ...defaultHeuristics,
+      ...Object.keys(sampleCounts),
+      ...Object.keys(templateCounts)
+    ])
   );
 
   return (
@@ -207,25 +223,67 @@ export const GestureTrainer: React.FC<GestureTrainerProps> = ({
           </div>
         ) : (
           <div className="gesture-list">
-            {registeredLabels.map((label) => (
-              <div key={label} className="gesture-item">
-                <div className="gesture-info">
-                  <span className="gesture-name">{label}</span>
-                  <span className="gesture-meta">
-                    {sampleCounts[label] || 0} mẫu raw | {templateCounts[label] || 0} vector đại diện (K-Means)
-                  </span>
+            {registeredLabels.map((label) => {
+              const mappedLabel = labelMappings[label];
+              return (
+                <div key={label} className="gesture-item" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div className="gesture-info">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span className="gesture-name">{label}</span>
+                      {mappedLabel && (
+                        <span style={{ fontSize: '0.72rem', background: 'rgba(0, 242, 254, 0.15)', border: '1px solid #00f2fe', color: '#00f2fe', padding: '1px 6px', borderRadius: '6px', fontWeight: 'bold' }}>
+                          ➔ {mappedLabel} (Đã đổi)
+                        </span>
+                      )}
+                    </div>
+                    <span className="gesture-meta">
+                      {sampleCounts[label] || 0} mẫu raw | {templateCounts[label] || 0} vector đại diện (K-Means)
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <button
+                      className="btn btn-secondary btn-small"
+                      onClick={() => {
+                        const newName = prompt(`Nhập tên nhãn từ mới bạn muốn thay thế cho '${label}' (Ví dụ: PTIT, CHAO_THEY):`, mappedLabel || label);
+                        if (newName && newName.trim() && onUpdateLabelMapping) {
+                          onUpdateLabelMapping(label, newName.trim().toUpperCase());
+                        }
+                      }}
+                      disabled={loading || isRecording}
+                      title="Đổi tên/nhãn từ xuất ra trên camera"
+                      style={{ padding: '4px 8px', fontSize: '0.72rem', color: '#00f2fe', border: '1px solid rgba(0, 242, 254, 0.4)' }}
+                    >
+                      <Edit3 size={12} style={{ marginRight: '3px' }} />
+                      {mappedLabel ? 'Sửa Nhãn' : 'Đổi Nhãn'}
+                    </button>
+
+                    {mappedLabel && onResetLabelMapping && (
+                      <button
+                        className="btn btn-secondary btn-small"
+                        onClick={() => onResetLabelMapping(label)}
+                        disabled={loading || isRecording}
+                        title="Khôi phục lại tên gốc ban đầu"
+                        style={{ padding: '4px 8px', fontSize: '0.72rem', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.4)' }}
+                      >
+                        <RotateCcw size={12} style={{ marginRight: '3px' }} />
+                        Gốc
+                      </button>
+                    )}
+
+                    <button
+                      className="btn btn-danger btn-small"
+                      onClick={() => handleDelete(label)}
+                      disabled={loading || isRecording}
+                      title="Xóa cử chỉ này"
+                      style={{ padding: '6px' }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
-                <button
-                  className="btn btn-danger btn-small"
-                  onClick={() => handleDelete(label)}
-                  disabled={loading || isRecording}
-                  title="Xóa cử chỉ này"
-                  style={{ padding: '6px' }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

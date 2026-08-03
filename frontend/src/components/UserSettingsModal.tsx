@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Settings, Volume2, Sliders, Hand, ShieldAlert, Sparkles } from 'lucide-react';
+import { X, Settings, Volume2, Sliders, Hand, Sparkles } from 'lucide-react';
 
 export interface UserPreferences {
   speechRate: number; // 0.8, 1.0, 1.2

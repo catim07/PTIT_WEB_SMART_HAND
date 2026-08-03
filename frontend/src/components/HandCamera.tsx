@@ -448,9 +448,22 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             results.multiHandLandmarks &&
             results.multiHandLandmarks.length > 0
           ) {
-            results.multiHandLandmarks.forEach(
+            // Background Hand Proximity Filter: Ignore small hands (< 0.012 area) belonging to people sitting behind user
+            const validHands = results.multiHandLandmarks.filter((landmarks: Landmark[]) => {
+              if (!landmarks || landmarks.length !== 21) return false;
+              let minX = 1, maxX = 0, minY = 1, maxY = 0;
+              for (const p of landmarks) {
+                if (p.x < minX) minX = p.x;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.y > maxY) maxY = p.y;
+              }
+              const area = (maxX - minX) * (maxY - minY);
+              return area >= 0.012;
+            });
+
+            validHands.forEach(
               (landmarks: Landmark[], idx: number) => {
-                if (!landmarks || landmarks.length !== 21) return;
                 const handedness = results.multiHandedness?.[idx]?.label;
                 if (handedness === "Left") {
                   leftHand = landmarks;

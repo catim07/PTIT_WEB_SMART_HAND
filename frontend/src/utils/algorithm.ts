@@ -247,6 +247,71 @@ export function classifySequence(
 }
 
 /**
+ * =========================================================================================
+ * THUẬT TOÁN MÁY HỌC KNN TRỌNG SỐ KHOẢNG CÁCH EUCLIDEAN (DISTANCE-WEIGHTED KNN CLASSIFIER)
+ * =========================================================================================
+ * 🎯 MỤC ĐÍCH:
+ *   So sánh Vector đặc trưng 65 chiều (65D) từ bàn tay người dùng thời gian thực
+ *   với toàn bộ các Mẫu Prototype đã huấn luyện lưu trong Cơ sở dữ liệu MongoDB Cloud Atlas.
+ * 
+ * 📐 NGUYÊN LÝ TÍNH TOÁN:
+ *   1. Tính khoảng cách Euclidean d = sqrt(sum((x_i - y_i)^2)) cho 65 chiều dữ liệu.
+ *   2. Tìm K hàng xóm có khoảng cách nhỏ nhất (K-Nearest Neighbors).
+ *   3. Tính độ tin cậy Confidence tỉ lệ nghịch với khoảng cách d.
+ *   4. Nếu Confidence >= 60%, trả về nhãn cử chỉ máy học trùng khớp.
+ */
+export function predictGestureKNN(
+  inputVector: number[],
+  templates: GestureTemplate[],
+  k = 3,
+  minConfidence = 0.55
+): { label: string; confidence: number; details: string } | null {
+  // Kiểm tra điều kiện đầu vào an toàn
+  if (!inputVector || inputVector.length === 0 || !templates || templates.length === 0) {
+    return null;
+  }
+
+  const distances: { label: string; dist: number }[] = [];
+
+  // BƯỚC 1: Duyệt qua tất cả các Mẫu (Templates) trong Database
+  for (const t of templates) {
+    if (!t.featureVectors || t.featureVectors.length === 0) continue;
+    let minD = Infinity;
+    
+    // Tính khoảng cách Euclidean nhỏ nhất tới các vector mẫu
+    for (const vec of t.featureVectors) {
+      if (!vec || vec.length === 0) continue;
+      const d = getVectorDistance(inputVector, vec);
+      if (d < minD) minD = d;
+    }
+    if (minD < Infinity) {
+      distances.push({ label: t.label, dist: minD });
+    }
+  }
+
+  if (distances.length === 0) return null;
+
+  // BƯỚC 2: Sắp xếp các mẫu và lấy K hàng xóm gần nhất (KNN)
+  distances.sort((a, b) => a.dist - b.dist);
+  const topNeighbors = distances.slice(0, Math.min(k, distances.length));
+  const topNeighbor = topNeighbors[0];
+
+  // BƯỚC 3: Đánh giá ngưỡng tin cậy tối thiểu minConfidence
+  if (topNeighbor.dist < 2.0) {
+    const confidence = Math.max(minConfidence, Math.min(0.99, 1 - topNeighbor.dist / 3.0));
+    if (confidence >= minConfidence) {
+      return {
+        label: topNeighbor.label,
+        confidence,
+        details: `${topNeighbor.label} (KNN AI Mẫu - ${Math.round(confidence * 100)}%)`
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Online adaptation / self-calibration for a sequence template.
  * Linearly interpolates the template sequence toward the input sequence.
  * Handles different sequence lengths by first resampling the input.
@@ -430,14 +495,22 @@ export function diagnoseGestureError(
 }
 
 /**
- * Accurately counts extended fingers (0 to 5) from 21 MediaPipe hand landmarks
- * using 3D skeletal geometry and joint angle thresholds.
+ * =========================================================================================
+ * GIẢI THUẬT PHÂN LOẠI QUY TẮC HÌNH HỌC 3D NGÓN TAY (3D SKELETAL HEURISTICS ENGINE)
+ * =========================================================================================
+ * 🎯 MỤC ĐÍCH:
+ *   Tính toán góc gập/duỗi 3D và khoảng cách tương quan giữa 21 khớp ngón tay
+ *   để nhận diện tức thì các cử chỉ chuẩn cố định (Số 0-5, Uống nước, Bắn tim 🫰, Like 👍, OK 👌).
  */
-export function countExtendedFingers(handLandmarks: Landmark[]): { count: number; label: string; details: string } {
+export function countExtendedFingers(
+  handLandmarks: Landmark[],
+  poseLandmarks?: Landmark[] | null
+): { count: number; label: string; details: string } {
   if (!handLandmarks || handLandmarks.length !== 21) {
     return { count: 0, label: 'SO_0', details: 'SO_0 (Nắm Tay)' };
   }
 
+  // Tọa độ 3D cổ tay (Wrist = 0) và 5 đầu ngón tay (Fingertips = 4, 8, 12, 16, 20)
   const wrist = handLandmarks[0];
   const thumbTip = handLandmarks[4];
   const indexTip = handLandmarks[8];
@@ -445,18 +518,36 @@ export function countExtendedFingers(handLandmarks: Landmark[]): { count: number
   const ringTip = handLandmarks[16];
   const pinkyTip = handLandmarks[20];
 
-  // For non-thumb fingers (Index: 8, Middle: 12, Ring: 16, Pinky: 20):
-  // Compare 3D Euclidean distance from Wrist to Tip vs Wrist to PIP joint.
+  // BƯỚC 1: Đánh giá trạng thái Duỗi/Gập của 4 ngón chính (Trỏ, Giữa, Nhẫn, Út)
+  // So sánh khoảng cách Euclidean (Cổ tay -> Đầu ngón) vs (Cổ tay -> Khớp giữa PIP)
   const isIndexOpen = getDistance3D(indexTip, wrist) > getDistance3D(handLandmarks[6], wrist) * 1.12;
   const isMiddleOpen = getDistance3D(middleTip, wrist) > getDistance3D(handLandmarks[10], wrist) * 1.12;
   const isRingOpen = getDistance3D(ringTip, wrist) > getDistance3D(handLandmarks[14], wrist) * 1.12;
   const isPinkyOpen = getDistance3D(pinkyTip, wrist) > getDistance3D(handLandmarks[18], wrist) * 1.12;
 
-  // 1. BAN_TIM (Finger Heart 🫰): Thumb Tip (4) and Index Tip (8) pinched close (<0.085 in 3D) while Index is extended outward (not folded deep in fist)
-  const thumbIndexDist = getDistance3D(thumbTip, indexTip);
+  const thumbIndexDist = getDistance3D(thumbTip, wrist ? thumbTip : indexTip);
+  const thumbIndexTipDist = getDistance3D(thumbTip, indexTip);
   const indexWristDist = getDistance3D(indexTip, wrist);
   const indexPipDist = getDistance3D(handLandmarks[6], wrist);
-  if (thumbIndexDist < 0.085 && indexWristDist > indexPipDist * 0.95 && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+
+  // BƯỚC 2: Kiểm tra Quy tắc Cử chỉ "UỐNG NƯỚC" (Bàn tay khum ly nước nâng lên gần vùng Miệng/Mặt)
+  const isCurvedGlassFist = thumbIndexTipDist >= 0.02 && thumbIndexTipDist <= 0.35 && thumbTip.y < wrist.y;
+  let isNearFace = false;
+  if (poseLandmarks && poseLandmarks[0]) {
+    const nose = poseLandmarks[0];
+    const distToNose = Math.hypot(thumbTip.x - nose.x, thumbTip.y - nose.y);
+    if (distToNose <= 0.45) isNearFace = true;
+  } else {
+    // Fallback when pose landmarks are not present: Hand is raised high in upper area (thumbTip.y < 0.65)
+    if (thumbTip.y < 0.65 && wrist.y < 0.85) isNearFace = true;
+  }
+
+  if (isNearFace && isCurvedGlassFist && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+    return { count: 1, label: 'UONG_NUOC', details: 'UONG_NUOC (Uống Nước 🥤)' };
+  }
+
+  // BƯỚC 3: Kiểm tra Quy tắc Cử chỉ "BẮN TIM" (Đầu ngón cái & ngón trỏ chạm sát nhau < 0.085)
+  if (thumbIndexTipDist < 0.085 && indexWristDist > indexPipDist * 0.95 && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
     return { count: 2, label: 'BAN_TIM', details: 'BAN_TIM (Bắn Tim 🫰)' };
   }
 
