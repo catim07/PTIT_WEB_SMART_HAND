@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from "react";
 import {
   Camera as CameraIcon,
   Loader2,
@@ -11,22 +11,27 @@ import {
   Hand,
   Zap,
   RotateCcw,
-} from 'lucide-react';
-import { type Landmark } from '../types';
-import { drawHandSkeleton } from '../utils/drawing';
-import { resetEMAFilter } from '../utils/algorithm';
+} from "lucide-react";
+import { type Landmark } from "../types";
+import { drawHandSkeleton } from "../utils/drawing";
+import { resetEMAFilter } from "../utils/algorithm";
 
 interface HandCameraProps {
   onLandmarksDetected: (
     leftHand: Landmark[] | null,
     rightHand: Landmark[] | null,
-    pose: Landmark[] | null
+    pose: Landmark[] | null,
   ) => void;
   onTrackingLost: () => void;
   isRecording: boolean;
 }
 
-type ErrorType = 'PERMISSION_DENIED' | 'NOT_FOUND' | 'HARDWARE_IN_USE' | 'NOT_SUPPORTED' | 'UNKNOWN';
+type ErrorType =
+  | "PERMISSION_DENIED"
+  | "NOT_FOUND"
+  | "HARDWARE_IN_USE"
+  | "NOT_SUPPORTED"
+  | "UNKNOWN";
 
 const FRAME_INTERVAL_MS = 33; // 30 FPS
 
@@ -35,11 +40,15 @@ const FRAME_INTERVAL_MS = 33; // 30 FPS
  */
 const getUserMediaWithTimeout = (
   constraints: MediaStreamConstraints,
-  timeoutMs = 1500
+  timeoutMs = 1500,
 ): Promise<MediaStream> => {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error('HARDWARE_TIMEOUT: Thời gian phản hồi của thiết bị Camera vượt quá 1.5 giây.'));
+      reject(
+        new Error(
+          "HARDWARE_TIMEOUT: Thời gian phản hồi của thiết bị Camera vượt quá 1.5 giây.",
+        ),
+      );
     }, timeoutMs);
 
     navigator.mediaDevices
@@ -72,14 +81,16 @@ export const HandCamera: React.FC<HandCameraProps> = ({
   const [retryCount, setRetryCount] = useState(0);
   const [isResettingAI, setIsResettingAI] = useState(false);
   const [resetSuccessMessage, setResetSuccessMessage] = useState(false);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
 
   // Diagnostics State
   const [errorType, setErrorType] = useState<ErrorType | null>(null);
-  const [errorTitle, setErrorTitle] = useState<string>('');
-  const [errorDescription, setErrorDescription] = useState<string>('');
+  const [errorTitle, setErrorTitle] = useState<string>("");
+  const [errorDescription, setErrorDescription] = useState<string>("");
   const [detectedDevices, setDetectedDevices] = useState<MediaDeviceInfo[]>([]);
-  const [activeTab, setActiveTab] = useState<'CHROME' | 'FIREFOX' | 'WINDOWS'>('CHROME');
+  const [activeTab, setActiveTab] = useState<"CHROME" | "FIREFOX" | "WINDOWS">(
+    "CHROME",
+  );
 
   const isAIEvaluatingRef = useRef<boolean>(false);
   const lastResultsTimestampRef = useRef<number>(Date.now());
@@ -97,13 +108,13 @@ export const HandCamera: React.FC<HandCameraProps> = ({
   const handleResetAIEngine = () => {
     setIsResettingAI(true);
     resetEMAFilter();
-    console.log('>>> Manual Reset of MediaPipe Hands Engine requested...');
+    console.log(">>> Manual Reset of MediaPipe Hands Engine requested...");
 
     if (aiEngineRef.current) {
       try {
         aiEngineRef.current.close();
       } catch (e) {
-        console.warn('Error closing engine during manual reset:', e);
+        console.warn("Error closing engine during manual reset:", e);
       }
       aiEngineRef.current = null;
     }
@@ -124,7 +135,9 @@ export const HandCamera: React.FC<HandCameraProps> = ({
     const watchdogInterval = setInterval(() => {
       const elapsed = Date.now() - lastResultsTimestampRef.current;
       if (elapsed > 4000 && isAIEvaluatingRef.current) {
-        console.warn(`[AI Watchdog] MediaPipe response stalled for ${elapsed}ms. Re-releasing frame lock...`);
+        console.warn(
+          `[AI Watchdog] MediaPipe response stalled for ${elapsed}ms. Re-releasing frame lock...`,
+        );
         lastResultsTimestampRef.current = Date.now();
         isAIEvaluatingRef.current = false;
       }
@@ -138,7 +151,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
         const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoInputs = devices.filter((d) => d.kind === 'videoinput');
+        const videoInputs = devices.filter((d) => d.kind === "videoinput");
         setDetectedDevices(videoInputs);
         if (videoInputs.length > 0 && !selectedDeviceId) {
           setSelectedDeviceId(videoInputs[0].deviceId);
@@ -146,7 +159,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         return videoInputs;
       }
     } catch (e) {
-      console.warn('Unable to enumerate devices:', e);
+      console.warn("Unable to enumerate devices:", e);
     }
     return [];
   };
@@ -161,14 +174,14 @@ export const HandCamera: React.FC<HandCameraProps> = ({
     const renderSimulation = () => {
       const canvas = canvasRef.current;
       if (canvas) {
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext("2d");
         if (ctx) {
           ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-          ctx.fillStyle = '#0f172a';
+          ctx.fillStyle = "#0f172a";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-          ctx.strokeStyle = 'rgba(0, 242, 254, 0.05)';
+          ctx.strokeStyle = "rgba(0, 242, 254, 0.05)";
           ctx.lineWidth = 1;
           for (let x = 0; x < canvas.width; x += 40) {
             ctx.beginPath();
@@ -186,7 +199,13 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           const elapsed = Date.now() - startTime;
           const simHand = generateSimulatedHand(elapsed);
 
-          drawHandSkeleton(ctx, simHand, canvas.width, canvas.height, isRecording);
+          drawHandSkeleton(
+            ctx,
+            simHand,
+            canvas.width,
+            canvas.height,
+            isRecording,
+          );
 
           const simPose: Landmark[] = [
             { x: 0.5, y: 0.2, z: 0 },
@@ -198,7 +217,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           ctx.beginPath();
           ctx.moveTo(0.35 * canvas.width, 0.4 * canvas.height);
           ctx.lineTo(0.65 * canvas.width, 0.4 * canvas.height);
-          ctx.strokeStyle = 'rgba(0, 242, 254, 0.4)';
+          ctx.strokeStyle = "rgba(0, 242, 254, 0.4)";
           ctx.lineWidth = 4;
           ctx.stroke();
 
@@ -225,8 +244,8 @@ export const HandCamera: React.FC<HandCameraProps> = ({
     async function initCameraAndEngine() {
       try {
         setErrorType(null);
-        setErrorTitle('');
-        setErrorDescription('');
+        setErrorTitle("");
+        setErrorDescription("");
         setModelLoading(true);
 
         if (mediaStreamRef.current) {
@@ -240,9 +259,11 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         const availableDevices = await checkVideoDevices();
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          setErrorType('NOT_SUPPORTED');
-          setErrorTitle('Trình duyệt không hỗ trợ API Camera (getUserMedia)');
-          setErrorDescription('Vui lòng mở ứng dụng trong Google Chrome hoặc Microsoft Edge.');
+          setErrorType("NOT_SUPPORTED");
+          setErrorTitle("Trình duyệt không hỗ trợ API Camera (getUserMedia)");
+          setErrorDescription(
+            "Vui lòng mở ứng dụng trong Google Chrome hoặc Microsoft Edge.",
+          );
           setModelLoading(false);
           return;
         }
@@ -259,11 +280,11 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         }
 
         // Stage 2: User selected deviceId (only if non-empty valid deviceId)
-        if (!stream && selectedDeviceId && selectedDeviceId.trim() !== '') {
+        if (!stream && selectedDeviceId && selectedDeviceId.trim() !== "") {
           try {
             stream = await getUserMediaWithTimeout(
               { video: { deviceId: selectedDeviceId } },
-              3000
+              3000,
             );
           } catch (e0) {
             lastError = e0;
@@ -280,7 +301,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
                   height: { ideal: 480 },
                 },
               },
-              3000
+              3000,
             );
           } catch (e3: any) {
             lastError = e3;
@@ -293,7 +314,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             try {
               stream = await getUserMediaWithTimeout(
                 { video: { deviceId: { exact: dev.deviceId } } },
-                3000
+                3000,
               );
               if (stream) {
                 setSelectedDeviceId(dev.deviceId);
@@ -303,7 +324,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
               try {
                 stream = await getUserMediaWithTimeout(
                   { video: { deviceId: dev.deviceId } },
-                  3000
+                  3000,
                 );
                 if (stream) {
                   setSelectedDeviceId(dev.deviceId);
@@ -319,7 +340,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           try {
             stream = await getUserMediaWithTimeout(
               { video: { width: { max: 320 }, height: { max: 240 } } },
-              3000
+              3000,
             );
           } catch (e5: any) {
             lastError = e5;
@@ -327,34 +348,37 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         }
 
         if (!stream) {
-          const err2 = lastError || new Error('Unable to connect to camera');
-          console.error('Camera getUserMedia error after aggressive retries:', err2);
+          const err2 = lastError || new Error("Unable to connect to camera");
+          console.error(
+            "Camera getUserMedia error after aggressive retries:",
+            err2,
+          );
 
           setModelLoading(false);
           if (
-            err2.name === 'NotAllowedError' ||
-            err2.name === 'PermissionDeniedError'
+            err2.name === "NotAllowedError" ||
+            err2.name === "PermissionDeniedError"
           ) {
-            setErrorType('PERMISSION_DENIED');
-            setErrorTitle('Quyền truy cập Camera bị từ chối');
+            setErrorType("PERMISSION_DENIED");
+            setErrorTitle("Quyền truy cập Camera bị từ chối");
             setErrorDescription(
-              'Trình duyệt hoặc Windows đang chặn quyền truy cập camera. Bấm "Xin Lại Quyền" bên dưới.'
+              'Trình duyệt hoặc Windows đang chặn quyền truy cập camera. Bấm "Xin Lại Quyền" bên dưới.',
             );
           } else if (
-            err2.name === 'NotFoundError' ||
-            err2.name === 'DevicesNotFoundError' ||
+            err2.name === "NotFoundError" ||
+            err2.name === "DevicesNotFoundError" ||
             availableDevices.length === 0
           ) {
-            setErrorType('NOT_FOUND');
-            setErrorTitle('Không tìm thấy thiết bị Webcam nào');
+            setErrorType("NOT_FOUND");
+            setErrorTitle("Không tìm thấy thiết bị Webcam nào");
             setErrorDescription(
-              'Kiểm tra cáp USB hoặc phím tắt bật camera phần cứng trên máy tính.'
+              "Kiểm tra cáp USB hoặc phím tắt bật camera phần cứng trên máy tính.",
             );
           } else {
-            setErrorType('HARDWARE_IN_USE');
-            setErrorTitle('Thiết bị Camera đang bị ứng dụng khác chiếm dụng');
+            setErrorType("HARDWARE_IN_USE");
+            setErrorTitle("Thiết bị Camera đang bị ứng dụng khác chiếm dụng");
             setErrorDescription(
-              'Camera của bạn có thể đang mở ở Zalo, Messenger, OBS, Zoom, hoặc Camera Windows. Bạn có thể Ép Bật lại hoặc chọn Chế Độ Mô Phỏng Demo bên dưới.'
+              "Camera của bạn có thể đang mở ở Zalo, Messenger, OBS, Zoom, hoặc Camera Windows. Bạn có thể Ép Bật lại hoặc chọn Chế Độ Mô Phỏng Demo bên dưới.",
             );
           }
           return;
@@ -363,22 +387,24 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         mediaStreamRef.current = stream;
         setIsSimulating(false);
         setErrorType(null);
-        setErrorTitle('');
-        setErrorDescription('');
+        setErrorTitle("");
+        setErrorDescription("");
 
         // Stream Health Monitor & Track listeners
         const videoTrack = stream.getVideoTracks()[0];
         if (videoTrack) {
           videoTrack.onended = () => {
-            console.warn('Camera video track ended unexpectedly. Re-acquiring...');
+            console.warn(
+              "Camera video track ended unexpectedly. Re-acquiring...",
+            );
             setCameraActive(false);
             setRetryCount((prev) => prev + 1);
           };
           videoTrack.onmute = () => {
-            console.warn('Camera video track muted.');
+            console.warn("Camera video track muted.");
           };
           videoTrack.onunmute = () => {
-            console.log('Camera video track unmuted.');
+            console.log("Camera video track unmuted.");
           };
         }
 
@@ -403,7 +429,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           const canvas = canvasRef.current;
           if (!canvas) return;
 
-          const ctx = canvas.getContext('2d');
+          const ctx = canvas.getContext("2d");
           if (!ctx) return;
 
           const v = videoRef.current;
@@ -418,14 +444,17 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           let rightHand: Landmark[] | null = null;
           let pose: Landmark[] | null = null;
 
-          if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+          if (
+            results.multiHandLandmarks &&
+            results.multiHandLandmarks.length > 0
+          ) {
             results.multiHandLandmarks.forEach(
               (landmarks: Landmark[], idx: number) => {
                 if (!landmarks || landmarks.length !== 21) return;
                 const handedness = results.multiHandedness?.[idx]?.label;
-                if (handedness === 'Left') {
+                if (handedness === "Left") {
                   leftHand = landmarks;
-                } else if (handedness === 'Right') {
+                } else if (handedness === "Right") {
                   rightHand = landmarks;
                 } else {
                   if (!rightHand) rightHand = landmarks;
@@ -436,9 +465,9 @@ export const HandCamera: React.FC<HandCameraProps> = ({
                   landmarks,
                   canvas.width,
                   canvas.height,
-                  isRecording
+                  isRecording,
                 );
-              }
+              },
             );
           }
 
@@ -452,7 +481,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
               results.rightHandLandmarks,
               canvas.width,
               canvas.height,
-              isRecording
+              isRecording,
             );
           }
           if (
@@ -465,7 +494,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
               results.leftHandLandmarks,
               canvas.width,
               canvas.height,
-              isRecording
+              isRecording,
             );
           }
 
@@ -479,13 +508,13 @@ export const HandCamera: React.FC<HandCameraProps> = ({
               ctx.beginPath();
               ctx.moveTo(
                 leftShoulder.x * canvas.width,
-                leftShoulder.y * canvas.height
+                leftShoulder.y * canvas.height,
               );
               ctx.lineTo(
                 rightShoulder.x * canvas.width,
-                rightShoulder.y * canvas.height
+                rightShoulder.y * canvas.height,
               );
-              ctx.strokeStyle = 'rgba(0, 242, 254, 0.4)';
+              ctx.strokeStyle = "rgba(0, 242, 254, 0.4)";
               ctx.lineWidth = 4;
               ctx.stroke();
             }
@@ -506,7 +535,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           if (aiEngineRef.current) return aiEngineRef.current;
           const HandsClass = (window as any).Hands || (window as any).Holistic;
           if (HandsClass) {
-            console.log('>>> Instantiating Local MediaPipe Hands Engine...');
+            console.log(">>> Instantiating Local MediaPipe Hands Engine...");
             const engine = new HandsClass({
               locateFile: (file: string) => `/mediapipe/hands/${file}`,
             });
@@ -559,7 +588,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             try {
               await engine.send({ image: v });
             } catch (e) {
-              console.warn('Frame process warning:', e);
+              console.warn("Frame process warning:", e);
               isAIEvaluatingRef.current = false;
             }
             isProcessing = false;
@@ -572,11 +601,11 @@ export const HandCamera: React.FC<HandCameraProps> = ({
 
         animationFrameId = requestAnimationFrame(processFrame);
       } catch (err: any) {
-        console.error('Error starting camera/AI:', err);
+        console.error("Error starting camera/AI:", err);
         setModelLoading(false);
-        setErrorType('UNKNOWN');
-        setErrorTitle('Không thể kết nối với Camera');
-        setErrorDescription(err.message || 'Lỗi không xác định.');
+        setErrorType("UNKNOWN");
+        setErrorTitle("Không thể kết nối với Camera");
+        setErrorDescription(err.message || "Lỗi không xác định.");
       }
     }
 
@@ -601,7 +630,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           aiEngineRef.current.close();
           aiEngineRef.current = null;
         } catch (e) {
-          console.warn('Error closing WASM engine:', e);
+          console.warn("Error closing WASM engine:", e);
         }
       }
     };
@@ -616,16 +645,18 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         }
       }
     };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [cameraActive]);
 
   // Handle Hardware Device Change Events (e.g. physical laptop camera switch flipped ON/OFF)
   useEffect(() => {
     const handleDeviceChange = async () => {
-      console.log('>>> Hardware devicechange event detected (Physical Switch / USB)...');
+      console.log(
+        ">>> Hardware devicechange event detected (Physical Switch / USB)...",
+      );
       await checkVideoDevices();
       // Auto-retry connection when physical hardware switch is flipped back ON
       if (!cameraActive) {
@@ -634,11 +665,20 @@ export const HandCamera: React.FC<HandCameraProps> = ({
     };
 
     if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
-      navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+      navigator.mediaDevices.addEventListener(
+        "devicechange",
+        handleDeviceChange,
+      );
     }
     return () => {
-      if (navigator.mediaDevices && navigator.mediaDevices.removeEventListener) {
-        navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+      if (
+        navigator.mediaDevices &&
+        navigator.mediaDevices.removeEventListener
+      ) {
+        navigator.mediaDevices.removeEventListener(
+          "devicechange",
+          handleDeviceChange,
+        );
       }
     };
   }, [cameraActive]);
@@ -648,7 +688,9 @@ export const HandCamera: React.FC<HandCameraProps> = ({
     setErrorType(null);
     setModelLoading(true);
     try {
-      const directStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const directStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+      });
       if (directStream && videoRef.current) {
         if (mediaStreamRef.current) {
           mediaStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -661,27 +703,29 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         return;
       }
     } catch (e) {
-      console.warn('Direct user gesture getUserMedia warning:', e);
+      console.warn("Direct user gesture getUserMedia warning:", e);
     }
     setRetryCount((prev) => prev + 1);
   };
 
   const handleRequestPermissionAgain = async () => {
     try {
-      setErrorTitle('Đang xin cấp lại quyền...');
+      setErrorTitle("Đang xin cấp lại quyền...");
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       stream.getTracks().forEach((track) => track.stop());
       handleForceRetryCamera();
     } catch (e) {
-      console.warn('Permission rejected:', e);
+      console.warn("Permission rejected:", e);
     }
   };
 
   const handleOpenWindowsPrivacy = () => {
     try {
-      window.open('ms-settings:privacy-webcam');
+      window.open("ms-settings:privacy-webcam");
     } catch (e) {
-      alert('Mở Windows Settings -> Privacy & security -> Camera để bật quyền.');
+      alert(
+        "Mở Windows Settings -> Privacy & security -> Camera để bật quyền.",
+      );
     }
   };
 
@@ -693,27 +737,49 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         playsInline
         muted
         autoPlay
-        style={{ display: 'block' }}
+        style={{ display: "block" }}
       />
       <canvas
         ref={canvasRef}
         width={640}
         height={480}
         className="canvas-element"
-        style={{ display: 'block' }}
+        style={{ display: "block" }}
       />
 
       {/* Loading Overlay */}
       {modelLoading && !isSimulating && !errorType && (
-        <div className="camera-placeholder" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
-          <Loader2 className="animate-spin" size={42} style={{ color: 'var(--color-primary)' }} />
-          <p style={{ margin: 0, fontSize: '0.95rem', color: '#fff', fontWeight: '600' }}>Đang kết nối Camera Thật...</p>
+        <div
+          className="camera-placeholder"
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "12px",
+          }}
+        >
+          <Loader2
+            className="animate-spin"
+            size={42}
+            style={{ color: "var(--color-primary)" }}
+          />
+          <p
+            style={{
+              margin: 0,
+              fontSize: "0.95rem",
+              color: "#fff",
+              fontWeight: "600",
+            }}
+          >
+            Đang kết nối Camera Thật...
+          </p>
 
-          <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+          <div style={{ display: "flex", gap: "8px", marginTop: "6px" }}>
             <button
               className="btn btn-primary btn-small"
               onClick={handleForceRetryCamera}
-              style={{ fontSize: '0.78rem', padding: '6px 12px' }}
+              style={{ fontSize: "0.78rem", padding: "6px 12px" }}
             >
               <Zap size={13} /> ⚡ Ép Thử Lại Ngay
             </button>
@@ -723,7 +789,12 @@ export const HandCamera: React.FC<HandCameraProps> = ({
                 setModelLoading(false);
                 setIsSimulating(true);
               }}
-              style={{ fontSize: '0.78rem', padding: '6px 12px', borderColor: '#f59e0b', color: '#f59e0b' }}
+              style={{
+                fontSize: "0.78rem",
+                padding: "6px 12px",
+                borderColor: "#f59e0b",
+                color: "#f59e0b",
+              }}
             >
               <Play size={13} /> 🎬 Bật Mô Phỏng 3D
             </button>
@@ -736,26 +807,64 @@ export const HandCamera: React.FC<HandCameraProps> = ({
         <div
           className="camera-placeholder"
           style={{
-            padding: '20px',
-            textAlign: 'left',
-            maxWidth: '580px',
-            margin: '0 auto',
-            maxHeight: '460px',
-            overflowY: 'auto',
+            padding: "20px",
+            textAlign: "left",
+            maxWidth: "580px",
+            margin: "0 auto",
+            maxHeight: "460px",
+            overflowY: "auto",
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-            <ShieldAlert size={36} style={{ color: 'var(--color-danger)', flexShrink: 0 }} />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              marginBottom: "12px",
+            }}
+          >
+            <ShieldAlert
+              size={36}
+              style={{ color: "var(--color-danger)", flexShrink: 0 }}
+            />
             <div>
-              <h4 style={{ color: '#fff', fontSize: '1.1rem', margin: 0 }}>{errorTitle}</h4>
-              <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem', margin: '2px 0 0 0' }}>{errorDescription}</p>
+              <h4 style={{ color: "#fff", fontSize: "1.1rem", margin: 0 }}>
+                {errorTitle}
+              </h4>
+              <p
+                style={{
+                  color: "rgba(255,255,255,0.7)",
+                  fontSize: "0.85rem",
+                  margin: "2px 0 0 0",
+                }}
+              >
+                {errorDescription}
+              </p>
             </div>
           </div>
 
           {detectedDevices.length > 0 ? (
-            <div style={{ background: 'rgba(0,0,0,0.3)', padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', fontSize: '0.82rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-primary)', fontWeight: '600', marginBottom: '6px' }}>
-                <Monitor size={14} /> Tìm thấy {detectedDevices.length} thiết bị Camera:
+            <div
+              style={{
+                background: "rgba(0,0,0,0.3)",
+                padding: "10px 14px",
+                borderRadius: "8px",
+                marginBottom: "14px",
+                fontSize: "0.82rem",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  color: "var(--color-primary)",
+                  fontWeight: "600",
+                  marginBottom: "6px",
+                }}
+              >
+                <Monitor size={14} /> Tìm thấy {detectedDevices.length} thiết bị
+                Camera:
               </div>
               <select
                 value={selectedDeviceId}
@@ -764,13 +873,13 @@ export const HandCamera: React.FC<HandCameraProps> = ({
                   handleForceRetryCamera();
                 }}
                 style={{
-                  width: '100%',
-                  padding: '6px 10px',
-                  background: '#090d16',
-                  color: '#00f2fe',
-                  border: '1px solid var(--color-primary)',
-                  borderRadius: '6px',
-                  fontSize: '0.82rem',
+                  width: "100%",
+                  padding: "6px 10px",
+                  background: "#090d16",
+                  color: "#00f2fe",
+                  border: "1px solid var(--color-primary)",
+                  borderRadius: "6px",
+                  fontSize: "0.82rem",
                 }}
               >
                 {detectedDevices.map((dev, idx) => (
@@ -781,41 +890,74 @@ export const HandCamera: React.FC<HandCameraProps> = ({
               </select>
             </div>
           ) : (
-            <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '10px 14px', borderRadius: '8px', marginBottom: '14px', fontSize: '0.82rem', color: '#fca5a5' }}>
+            <div
+              style={{
+                background: "rgba(239, 68, 68, 0.15)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                padding: "10px 14px",
+                borderRadius: "8px",
+                marginBottom: "14px",
+                fontSize: "0.82rem",
+                color: "#fca5a5",
+              }}
+            >
               ⚠️ Chưa quét thấy webcam phần cứng nào kết nối.
             </div>
           )}
 
-          <div style={{ background: 'rgba(15, 23, 42, 0.6)', borderRadius: '10px', padding: '12px', marginBottom: '14px', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <div style={{ display: 'flex', gap: '6px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px', marginBottom: '10px' }}>
+          <div
+            style={{
+              background: "rgba(15, 23, 42, 0.6)",
+              borderRadius: "10px",
+              padding: "12px",
+              marginBottom: "14px",
+              border: "1px solid rgba(255,255,255,0.1)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                gap: "6px",
+                borderBottom: "1px solid rgba(255,255,255,0.1)",
+                paddingBottom: "8px",
+                marginBottom: "10px",
+              }}
+            >
               <button
-                className={`btn btn-small ${activeTab === 'CHROME' ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setActiveTab('CHROME')}
-                style={{ fontSize: '0.78rem', padding: '4px 10px' }}
+                className={`btn btn-small ${activeTab === "CHROME" ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => setActiveTab("CHROME")}
+                style={{ fontSize: "0.78rem", padding: "4px 10px" }}
               >
                 Chrome / Edge
               </button>
               <button
-                className={`btn btn-small ${activeTab === 'FIREFOX' ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setActiveTab('FIREFOX')}
-                style={{ fontSize: '0.78rem', padding: '4px 10px' }}
+                className={`btn btn-small ${activeTab === "FIREFOX" ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => setActiveTab("FIREFOX")}
+                style={{ fontSize: "0.78rem", padding: "4px 10px" }}
               >
                 Firefox
               </button>
               <button
-                className={`btn btn-small ${activeTab === 'WINDOWS' ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setActiveTab('WINDOWS')}
-                style={{ fontSize: '0.78rem', padding: '4px 10px' }}
+                className={`btn btn-small ${activeTab === "WINDOWS" ? "btn-primary" : "btn-secondary"}`}
+                onClick={() => setActiveTab("WINDOWS")}
+                style={{ fontSize: "0.78rem", padding: "4px 10px" }}
               >
                 Quyền Windows 10/11
               </button>
             </div>
 
-            <div style={{ fontSize: '0.83rem', lineHeight: '1.5', color: 'rgba(255,255,255,0.9)' }}>
-              {activeTab === 'CHROME' && (
-                <ol style={{ margin: 0, paddingLeft: '18px' }}>
+            <div
+              style={{
+                fontSize: "0.83rem",
+                lineHeight: "1.5",
+                color: "rgba(255,255,255,0.9)",
+              }}
+            >
+              {activeTab === "CHROME" && (
+                <ol style={{ margin: 0, paddingLeft: "18px" }}>
                   <li>
-                    Nhấp vào 🔒 <b>Ổ khóa</b> cạnh thanh URL <code>http://localhost:5173</code>.
+                    Nhấp vào 🔒 <b>Ổ khóa</b> cạnh thanh URL{" "}
+                    <code>http://localhost:5173</code>.
                   </li>
                   <li>
                     Đổi <b>Camera</b> sang <b>Cho phép (Allow)</b>.
@@ -826,8 +968,8 @@ export const HandCamera: React.FC<HandCameraProps> = ({
                 </ol>
               )}
 
-              {activeTab === 'FIREFOX' && (
-                <ol style={{ margin: 0, paddingLeft: '18px' }}>
+              {activeTab === "FIREFOX" && (
+                <ol style={{ margin: 0, paddingLeft: "18px" }}>
                   <li>
                     Nhấp vào 🎥 <b>Camera gạch chéo</b> ở bên trái thanh URL.
                   </li>
@@ -838,26 +980,50 @@ export const HandCamera: React.FC<HandCameraProps> = ({
                 </ol>
               )}
 
-              {activeTab === 'WINDOWS' && (
+              {activeTab === "WINDOWS" && (
                 <div>
-                  <p style={{ margin: '0 0 8px 0' }}>Bật quyền truy cập camera trong hệ điều hành Windows:</p>
+                  <p style={{ margin: "0 0 8px 0" }}>
+                    Bật quyền truy cập camera trong hệ điều hành Windows:
+                  </p>
                   <button
                     className="btn btn-secondary btn-small"
                     onClick={handleOpenWindowsPrivacy}
-                    style={{ width: '100%', gap: '6px', justifyContent: 'center', background: 'rgba(0, 242, 254, 0.15)', border: '1px solid var(--color-primary)', color: 'var(--color-primary)' }}
+                    style={{
+                      width: "100%",
+                      gap: "6px",
+                      justifyContent: "center",
+                      background: "rgba(0, 242, 254, 0.15)",
+                      border: "1px solid var(--color-primary)",
+                      color: "var(--color-primary)",
+                    }}
                   >
-                    <Settings size={14} /> Mở Cài Đặt Quyền Camera Windows <ExternalLink size={12} />
+                    <Settings size={14} /> Mở Cài Đặt Quyền Camera Windows{" "}
+                    <ExternalLink size={12} />
                   </button>
                 </div>
               )}
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-            <button className="btn btn-primary btn-small" onClick={handleForceRetryCamera} style={{ gap: '6px', justifyContent: 'center' }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: "8px",
+            }}
+          >
+            <button
+              className="btn btn-primary btn-small"
+              onClick={handleForceRetryCamera}
+              style={{ gap: "6px", justifyContent: "center" }}
+            >
               <Zap size={15} /> Ép Bật Camera Thật
             </button>
-            <button className="btn btn-secondary btn-small" onClick={handleRequestPermissionAgain} style={{ gap: '6px', justifyContent: 'center' }}>
+            <button
+              className="btn btn-secondary btn-small"
+              onClick={handleRequestPermissionAgain}
+              style={{ gap: "6px", justifyContent: "center" }}
+            >
               <CheckCircle2 size={15} /> Xin Lại Quyền
             </button>
             <button
@@ -866,7 +1032,12 @@ export const HandCamera: React.FC<HandCameraProps> = ({
                 setErrorType(null);
                 setIsSimulating(true);
               }}
-              style={{ gap: '6px', justifyContent: 'center', borderColor: '#f59e0b', color: '#f59e0b' }}
+              style={{
+                gap: "6px",
+                justifyContent: "center",
+                borderColor: "#f59e0b",
+                color: "#f59e0b",
+              }}
             >
               <Play size={15} /> Bật Demo
             </button>
@@ -876,10 +1047,30 @@ export const HandCamera: React.FC<HandCameraProps> = ({
 
       {/* HUD display with Manual AI Recovery Button */}
       {(cameraActive || isSimulating) && (
-        <div className="camera-hud" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <div className="camera-badge" style={isSimulating ? { borderColor: '#f59e0b', color: '#f59e0b' } : {}}>
-            <CameraIcon size={14} style={{ color: isSimulating ? '#f59e0b' : 'var(--color-primary)' }} />
-            <span>{isSimulating ? 'CHẾ ĐỘ MÔ PHỎNG DEMO' : 'TRACKING SẴN SÀNG'}</span>
+        <div
+          className="camera-hud"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            flexWrap: "wrap",
+          }}
+        >
+          <div
+            className="camera-badge"
+            style={
+              isSimulating ? { borderColor: "#f59e0b", color: "#f59e0b" } : {}
+            }
+          >
+            <CameraIcon
+              size={14}
+              style={{
+                color: isSimulating ? "#f59e0b" : "var(--color-primary)",
+              }}
+            />
+            <span>
+              {isSimulating ? "CHẾ ĐỘ MÔ PHỎNG DEMO" : "TRACKING SẴN SÀNG"}
+            </span>
           </div>
 
           {/* Prominent Recovery Button */}
@@ -888,46 +1079,71 @@ export const HandCamera: React.FC<HandCameraProps> = ({
               onClick={handleResetAIEngine}
               disabled={isResettingAI}
               style={{
-                background: 'rgba(0, 242, 254, 0.2)',
-                border: '1px solid var(--color-primary)',
-                color: '#00f2fe',
-                padding: '4px 12px',
-                borderRadius: '16px',
-                fontSize: '0.78rem',
-                fontWeight: '600',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                cursor: 'pointer',
-                backdropFilter: 'blur(4px)',
-                boxShadow: '0 0 10px rgba(0, 242, 254, 0.3)',
-                transition: 'all 0.2s ease',
+                background: "rgba(0, 242, 254, 0.2)",
+                border: "1px solid var(--color-primary)",
+                color: "#00f2fe",
+                padding: "4px 12px",
+                borderRadius: "16px",
+                fontSize: "0.78rem",
+                fontWeight: "600",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                cursor: "pointer",
+                backdropFilter: "blur(4px)",
+                boxShadow: "0 0 10px rgba(0, 242, 254, 0.3)",
+                transition: "all 0.2s ease",
               }}
               title="Nhấp vào đây nếu AI không phát hiện được tay để khởi động lại bộ bắt khớp"
             >
-              <RotateCcw size={13} className={isResettingAI ? 'animate-spin' : ''} />
-              <span>{isResettingAI ? 'Đang Khôi Phục...' : '🔄 Khôi Phục AI Tracking'}</span>
+              <RotateCcw
+                size={13}
+                className={isResettingAI ? "animate-spin" : ""}
+              />
+              <span>
+                {isResettingAI
+                  ? "Đang Khôi Phục..."
+                  : "🔄 Khôi Phục AI Tracking"}
+              </span>
             </button>
           )}
 
           {handDetected && !isSimulating && (
-            <div className="camera-badge" style={{ borderColor: 'var(--color-success)', color: 'var(--color-success)' }}>
+            <div
+              className="camera-badge"
+              style={{
+                borderColor: "var(--color-success)",
+                color: "var(--color-success)",
+              }}
+            >
               <Hand size={14} />
               <span>ĐÃ BẮT ĐƯỢC 21 KHỚP TAY</span>
             </div>
           )}
 
           {resetSuccessMessage && (
-            <div className="camera-badge animate-bounce" style={{ borderColor: '#10b981', color: '#10b981', background: 'rgba(16, 185, 129, 0.2)' }}>
+            <div
+              className="camera-badge animate-bounce"
+              style={{
+                borderColor: "#10b981",
+                color: "#10b981",
+                background: "rgba(16, 185, 129, 0.2)",
+              }}
+            >
               <CheckCircle2 size={14} />
               <span>ĐÃ KHÔI PHỤC BỘ NHẬN DIỆN AI!</span>
             </div>
           )}
 
           {isRecording && (
-            <div className="camera-badge" style={{ border: '1px solid rgba(255,23,68,0.3)' }}>
+            <div
+              className="camera-badge"
+              style={{ border: "1px solid rgba(255,23,68,0.3)" }}
+            >
               <div className="rec-dot animate-pulse" />
-              <span style={{ color: 'var(--color-danger)' }}>DANG GHI CHUOI</span>
+              <span style={{ color: "var(--color-danger)" }}>
+                DANG GHI CHUOI
+              </span>
             </div>
           )}
         </div>
@@ -937,22 +1153,22 @@ export const HandCamera: React.FC<HandCameraProps> = ({
       {!handDetected && cameraActive && !isSimulating && (
         <div
           style={{
-            position: 'absolute',
-            bottom: '12px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            background: 'rgba(15, 23, 42, 0.9)',
-            border: '1px solid rgba(0, 242, 254, 0.4)',
-            color: '#00f2fe',
-            padding: '8px 16px',
-            borderRadius: '24px',
-            fontSize: '0.82rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
+            position: "absolute",
+            bottom: "12px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "rgba(15, 23, 42, 0.9)",
+            border: "1px solid rgba(0, 242, 254, 0.4)",
+            color: "#00f2fe",
+            padding: "8px 16px",
+            borderRadius: "24px",
+            fontSize: "0.82rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
             zIndex: 10,
-            backdropFilter: 'blur(6px)',
-            boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+            backdropFilter: "blur(6px)",
+            boxShadow: "0 4px 15px rgba(0,0,0,0.5)",
           }}
         >
           <span>✋ Đưa cả bàn tay (cổ tay + 5 ngón) cách camera 30-40cm</span>
@@ -960,20 +1176,23 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             onClick={handleResetAIEngine}
             disabled={isResettingAI}
             style={{
-              background: 'linear-gradient(135deg, #00f2fe 0%, #4facfe 100%)',
-              color: '#090d16',
-              border: 'none',
-              padding: '4px 10px',
-              borderRadius: '12px',
-              fontWeight: 'bold',
-              fontSize: '0.75rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
+              background: "linear-gradient(135deg, #00f2fe 0%, #4facfe 100%)",
+              color: "#090d16",
+              border: "none",
+              padding: "4px 10px",
+              borderRadius: "12px",
+              fontWeight: "bold",
+              fontSize: "0.75rem",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
             }}
           >
-            <RotateCcw size={12} className={isResettingAI ? 'animate-spin' : ''} />
+            <RotateCcw
+              size={12}
+              className={isResettingAI ? "animate-spin" : ""}
+            />
             Khôi Phục AI Ngay
           </button>
         </div>

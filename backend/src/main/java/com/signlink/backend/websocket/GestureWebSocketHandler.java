@@ -23,6 +23,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class GestureWebSocketHandler extends TextWebSocketHandler {
 
     @Autowired
+    private com.signlink.backend.repository.ChatMessageRepository chatMessageRepository;
+
+    @Autowired
     private GesturePrototypeRepository gesturePrototypeRepository;
 
     @Autowired
@@ -111,18 +114,38 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
         } else if ("CHAT_MESSAGE".equals(type)) {
             String text = (String) payload.get("text");
             String sender = (String) payload.get("sender");
+            String senderRole = (String) payload.get("senderRole");
+            String signKeyword = (String) payload.get("signKeyword");
+            String roomId = (String) payload.get("roomId");
             String sessionId = session.getId();
             
+            // 1. Save Chat Message permanently into MongoDB Cloud database
+            try {
+                com.signlink.backend.model.ChatMessageEntity entity = new com.signlink.backend.model.ChatMessageEntity(
+                    sender != null ? sender : "Người Tiếng Nói",
+                    senderRole != null ? senderRole : "USER",
+                    text,
+                    signKeyword,
+                    roomId != null ? roomId : "SẢNH_CHUNG"
+                );
+                chatMessageRepository.save(entity);
+            } catch (Exception e) {
+                System.err.println("Lỗi lưu chat vào MongoDB: " + e.getMessage());
+            }
+
             Map<String, Object> broadcastMsg = new HashMap<>();
             broadcastMsg.put("type", "CHAT_MESSAGE");
             broadcastMsg.put("text", text);
             broadcastMsg.put("senderSessionId", sessionId);
-            broadcastMsg.put("senderRole", sender != null ? sender : "Đối Phương");
+            broadcastMsg.put("sender", sender != null ? sender : "Đối Phương");
+            broadcastMsg.put("senderRole", senderRole != null ? senderRole : "USER");
+            broadcastMsg.put("signKeyword", signKeyword);
+            broadcastMsg.put("roomId", roomId != null ? roomId : "SẢNH_CHUNG");
             broadcastMsg.put("timestamp", new java.text.SimpleDateFormat("HH:mm:ss").format(new Date()));
 
-            // Broadcast real-time remote chat message to ALL connected sessions
+            // Broadcast real-time remote chat message ONLY to OTHER connected sessions (prevents 3x duplicate local render)
             for (WebSocketSession s : activeSessions) {
-                if (s.isOpen()) {
+                if (s.isOpen() && !s.getId().equals(session.getId())) {
                     sendTextMessage(s, broadcastMsg);
                 }
             }

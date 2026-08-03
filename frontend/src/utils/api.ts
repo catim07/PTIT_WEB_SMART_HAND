@@ -192,3 +192,33 @@ export async function fetchTrends(): Promise<any> {
   if (!res.ok) throw new Error('Failed to fetch trends');
   return res.json();
 }
+
+export async function fetchChatHistory(roomId: string = 'SẢNH_CHUNG'): Promise<any[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/chat/history?roomId=${encodeURIComponent(roomId)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.map((item: any) => ({
+      id: item.id,
+      sender: 'OTHER',
+      senderName: item.senderName,
+      senderRole: item.senderRole,
+      text: item.text,
+      signKeyword: item.signKeyword,
+      timestamp: item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Vừa xong'
+    }));
+  } catch (err) {
+    console.warn('Lỗi lấy lịch sử chat từ backend:', err);
+    return [];
+  }
+}
+
+export async function clearChatHistory(roomId: string = 'SẢNH_CHUNG'): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/chat/history?roomId=${encodeURIComponent(roomId)}`, {
+      method: 'DELETE'
+    });
+  } catch (err) {
+    console.warn('Lỗi xóa lịch sử chat:', err);
+  }
+}

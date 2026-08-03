@@ -25,6 +25,8 @@ export interface ChatMessage {
 
 interface LiveChatHubProps {
   messages: ChatMessage[];
+  roomId: string;
+  onRoomChange: (newRoomId: string) => void;
   onSendMessage: (text: string, sender: 'DEAF' | 'HEARING', signKeyword?: string) => void;
   onSpeak: (text: string) => void;
   onClearChat?: () => void;
@@ -33,6 +35,8 @@ interface LiveChatHubProps {
 
 export const LiveChatHub: React.FC<LiveChatHubProps> = ({
   messages,
+  roomId,
+  onRoomChange,
   onSendMessage,
   onSpeak,
   onClearChat,
@@ -190,7 +194,23 @@ export const LiveChatHub: React.FC<LiveChatHubProps> = ({
           </div>
           <div>
             <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#fff', fontWeight: '700' }}>Kênh Trò Chuyện 2 Chiều (Live Chat Hub)</h3>
-            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>Hội thoại thời gian thực giữa Cử chỉ tay ⇄ Tiếng nói & Chữ viết</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+              <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>Hội thoại thời gian thực giữa Cử chỉ tay ⇄ Tiếng nói & Chữ viết</span>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(0,242,254,0.12)', border: '1px solid #00f2fe', borderRadius: '10px', padding: '2px 8px', fontSize: '0.72rem', color: '#00f2fe', fontWeight: '700' }}>
+                <span>🔑 Mã Phòng: {roomId}</span>
+                <button
+                  onClick={() => {
+                    const newRoom = prompt('Nhập Mã Phòng Chat Riêng (Ví dụ: PTIT-2026):', roomId);
+                    if (newRoom && newRoom.trim()) {
+                      onRoomChange(newRoom.trim().toUpperCase());
+                    }
+                  }}
+                  style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '0.7rem', textDecoration: 'underline', padding: 0 }}
+                >
+                  (Đổi Mã Phòng)
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

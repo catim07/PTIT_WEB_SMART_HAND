@@ -558,14 +558,14 @@ export function countExtendedFingers(handLandmarks: Landmark[]): { count: number
     return { count: 0, label: 'CHUU_O', details: 'CHUU_O (Chữ O)' };
   }
 
-  // 17. LETTER_U (Chữ U): Index & Middle extended UP touching together
+  // 17. LETTER_U (Chữ U): Index & Middle extended UP touching very close (<0.045)
   const indexMiddleDist = getDistance3D(indexTip, middleTip);
-  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && indexMiddleDist < 0.055) {
+  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && indexMiddleDist < 0.045) {
     return { count: 2, label: 'CHUU_U', details: 'CHUU_U (Chữ U)' };
   }
 
-  // 18. LETTER_V (Chữ V): Index & Middle extended UP spread in V-shape
-  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && indexMiddleDist >= 0.055) {
+  // 18. LETTER_V (Chữ V): Index & Middle extended UP in WIDE V-shape (indexMiddleDist > 0.095)
+  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && indexMiddleDist > 0.095) {
     return { count: 2, label: 'CHUU_V', details: 'CHUU_V (Chữ V)' };
   }
 

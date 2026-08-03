@@ -55,6 +55,23 @@ function App() {
   });
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
 
+  // --- Live Chat Room State ---
+  const [activeRoomId, setActiveRoomId] = useState<string>('SẢNH_CHUNG');
+
+  useEffect(() => {
+    async function loadRoomHistory() {
+      const history = await api.fetchChatHistory(activeRoomId);
+      setMessages(history);
+    }
+    loadRoomHistory();
+  }, [activeRoomId]);
+
+  const handleRoomChange = async (newRoomId: string) => {
+    setActiveRoomId(newRoomId);
+    const history = await api.fetchChatHistory(newRoomId);
+    setMessages(history);
+  };
+
   // --- Core State ---
   const [samples, setSamples] = useState<GestureSample[]>([]);
   const [templates, setTemplates] = useState<GestureTemplate[]>([]);
@@ -305,6 +322,8 @@ function App() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'CHAT_MESSAGE') {
+            const incomingRoomId = data.roomId || 'SẢNH_CHUNG';
+            if (incomingRoomId !== activeRoomId) return;
             const senderRole = data.senderRole || 'Đối Phương';
             const text = data.text;
             if (text) {
@@ -313,7 +332,10 @@ function App() {
                 {
                   id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
                   sender: 'OTHER',
-                  text: `[${senderRole}]: ${text}`,
+                  senderName: data.sender || senderRole,
+                  senderRole: data.senderRole || 'USER',
+                  text: text,
+                  signKeyword: data.signKeyword,
                   timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 },
               ]);
@@ -421,6 +443,7 @@ function App() {
         sender: senderName,
         senderRole: currentUser?.role || 'USER',
         signKeyword,
+        roomId: activeRoomId,
       }));
     }
   };
@@ -1064,9 +1087,14 @@ function App() {
         <main style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
           <LiveChatHub
             messages={messages}
+            roomId={activeRoomId}
+            onRoomChange={(newRoomId) => handleRoomChange(newRoomId)}
             onSendMessage={(text, sender, keyword) => addChatMessage(text, sender, keyword)}
             onSpeak={speakText}
-            onClearChat={() => setMessages([])}
+            onClearChat={async () => {
+              await api.clearChatHistory(activeRoomId);
+              setMessages([]);
+            }}
             templates={templates}
           />
         </main>
