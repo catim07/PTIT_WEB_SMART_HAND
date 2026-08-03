@@ -23,7 +23,7 @@ import { AuthModal } from './components/AuthModal';
 import { UserSettingsModal, type UserPreferences } from './components/UserSettingsModal';
 
 import { type Landmark, type GestureSample, type GestureTemplate, type SystemSettings, type RecognitionStats, type AuthUser } from './types';
-import { extractFeatures, countExtendedFingers, resetEMAFilter, detectDualHandGesture } from './utils/algorithm';
+import { extractFeatures, countExtendedFingers, resetEMAFilter, detectDualHandGesture, predictGestureKNN } from './utils/algorithm';
 import { drawHandSkeleton } from './utils/drawing';
 import * as api from './utils/api';
 
@@ -75,9 +75,43 @@ function App() {
   // --- Core State ---
   const [samples, setSamples] = useState<GestureSample[]>([]);
   const [templates, setTemplates] = useState<GestureTemplate[]>([]);
+  const templatesRef = useRef<GestureTemplate[]>(templates);
+  useEffect(() => {
+    templatesRef.current = templates;
+  }, [templates]);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [stats, setStats] = useState<RecognitionStats | null>(null);
-  
+  // Dynamic Label Mapping State (Persisted in localStorage)
+  const [labelMappings, setLabelMappings] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('signlink_label_mappings');
+    return saved ? JSON.parse(saved) : { "SO_5": "PTIT" };
+  });
+  const labelMappingsRef = useRef<Record<string, string>>(labelMappings);
+
+  useEffect(() => {
+    labelMappingsRef.current = labelMappings;
+  }, [labelMappings]);
+
+  const handleUpdateLabelMapping = (originalLabel: string, newLabel: string) => {
+    const origUpper = originalLabel.toUpperCase();
+    const newUpper = newLabel.trim().toUpperCase();
+    setLabelMappings((prev) => {
+      const updated = { ...prev, [origUpper]: newUpper };
+      localStorage.setItem('signlink_label_mappings', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleResetLabelMapping = (originalLabel: string) => {
+    const origUpper = originalLabel.toUpperCase();
+    setLabelMappings((prev) => {
+      const updated = { ...prev };
+      delete updated[origUpper];
+      localStorage.setItem('signlink_label_mappings', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   // Real-time Frame State
   const [activeLandmarks, setActiveLandmarks] = useState<Landmark[] | null>(null);
   const [activeFeatureVector, setActiveFeatureVector] = useState<number[] | null>(null);
@@ -114,6 +148,11 @@ function App() {
   const [isRecording, setIsRecording] = useState<boolean>(false);
   const [recordingLabel, setRecordingLabel] = useState<string>('');
   const [recordingProgress, setRecordingProgress] = useState<number>(0);
+  const isRecordingRef = useRef<boolean>(isRecording);
+
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
   
   // Speech-to-Sign (Two-way communication) State
   const [isListening, setIsListening] = useState<boolean>(false);
@@ -142,7 +181,6 @@ function App() {
   const lockInTargetLabelRef = useRef<string | null>(null);
   const burstFeaturesBufferRef = useRef<number[][]>([]);
   const burstLandmarksBufferRef = useRef<Landmark[][]>([]);
-  const isRecordingRef = useRef(isRecording);
   const avatarCanvasRef = useRef<HTMLCanvasElement>(null);
   const avatarIntervalRef = useRef<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -555,7 +593,22 @@ function App() {
     }
   };
 
-  // --- Real-time Holistic Frame Processing ---
+  /**
+   * =========================================================================================
+   * LUỒNG NHẬN DIỆN CỬ CHỈ THỜI GIAN THỰC 30 FPS (REAL-TIME HOLISTIC FRAME RECOGNITION LOOP)
+   * =========================================================================================
+   * ⚙️ CƠ CHẾ ĐÔI 3 CẤP ĐỘ (HYBRID RECOGNITION PIPELINE):
+   * 
+   * CẤP ĐỘ 1 - MÁY HỌC DỮ LIỆU ĐỘNG (KNN Classifier):
+   *   So sánh 65D Vector hiện tại với tất cả Mẫu do Admin huấn luyện trong Database.
+   *   Nếu trùng khớp >= 60%, ưu tiên sử dụng kết quả Mẫu AI.
+   * 
+   * CẤP ĐỘ 2 - QUY TẮC HÌNH HỌC 3D (3D Skeletal Heuristics Engine):
+   *   Nếu không có mẫu KNN phù hợp, đánh giá góc gập/duỗi 3D (Số 0-5, Uống nước, Like...).
+   * 
+   * CẤP ĐỘ 3 - ÁNH XẠ NHÃN TÙY CHỈNH (Dynamic Label Mapping):
+   *   Cho phép Admin đổi nhãn hiển thị (VD: Đổi 'SO_5' thành 'PTIT') thời gian thực.
+   */
   const handleLandmarksDetected = useCallback((
     leftHand: Landmark[] | null,
     rightHand: Landmark[] | null,
@@ -571,9 +624,22 @@ function App() {
     hasActiveHandRef.current = true;
     setActiveLandmarks(activeHand);
 
+    // BƯỚC 1: Trích xuất Vector 65D đặc trưng bất biến tỷ lệ & tọa độ
+    const { featureVector } = extractFeatures(activeHand, pose);
+    setActiveFeatureVector(featureVector);
+
     let fingerInfo: { count: number; label: string; details: string };
 
-    if (leftHand && leftHand.length === 21 && rightHand && rightHand.length === 21) {
+    // BƯỚC 2: Ưu tiên phân loại bằng Máy Học KNN với Dữ liệu mẫu trong Database Cloud
+    let knnResult = null;
+    if (templatesRef.current && templatesRef.current.length > 0) {
+      knnResult = predictGestureKNN(featureVector, templatesRef.current);
+    }
+
+    if (knnResult && knnResult.confidence >= 0.60) {
+      fingerInfo = { count: 1, label: knnResult.label, details: knnResult.details };
+    } else if (leftHand && leftHand.length === 21 && rightHand && rightHand.length === 21) {
+      // Nhận diện cử chỉ 2 tay (Số 6-10, Trái tim 2 tay)
       const dualResult = detectDualHandGesture(leftHand, rightHand);
       if (dualResult) {
         fingerInfo = { count: 10, label: dualResult.label, details: dualResult.details };
@@ -581,15 +647,23 @@ function App() {
         fingerInfo = countExtendedFingers(activeHand);
       }
     } else {
+      // Phân loại bằng Quy tắc Hình học 3D mặc định
       fingerInfo = countExtendedFingers(activeHand);
+    }
+
+    // BƯỚC 3: Ánh xạ Nhãn đổi từ Tùy chỉnh (VD: SO_5 -> PTIT)
+    const customMappedLabel = labelMappingsRef.current[fingerInfo.label.toUpperCase()];
+    if (customMappedLabel) {
+      fingerInfo = {
+        ...fingerInfo,
+        label: customMappedLabel,
+        details: `${customMappedLabel} (Thay từ ${fingerInfo.label})`
+      };
     }
 
     if (disabledLabels.has(fingerInfo.label.toUpperCase())) {
       fingerInfo = { count: 0, label: '', details: 'KHÔNG PHÁT HIỆN TAY' };
     }
-
-    const { featureVector } = extractFeatures(activeHand, pose);
-    setActiveFeatureVector(featureVector);
 
     // 1. Throttle prediction state update to prevent React render thrashing
     setPrediction((prev) => (prev === fingerInfo.details ? prev : fingerInfo.details));
@@ -624,12 +698,13 @@ function App() {
       burstLandmarksBufferRef.current.push(activeHand);
       
       const currentCount = burstFeaturesBufferRef.current.length;
-      const targetCount = 30;
-      const progress = (currentCount / targetCount) * 100;
+      const targetCount = 15;
+      const progress = Math.min(100, Math.round((currentCount / targetCount) * 100));
       setRecordingProgress(progress);
 
       if (currentCount >= targetCount) {
         setIsRecording(false);
+        isRecordingRef.current = false;
         saveBurstSequence();
       }
       return;
@@ -707,16 +782,34 @@ function App() {
       burstLandmarksBufferRef.current = [];
       setRecordingLabel('');
       await loadData();
+      alert(`🎉 Đã huấn luyện thành công chuỗi cử chỉ '${label}'!`);
     } catch (err) {
       console.error(err);
-      alert('Không thể lưu chuỗi mẫu cử chỉ.');
+      setSamples((prev) => [...prev, sample]);
+      setTemplates((prev) => [
+        ...prev,
+        {
+          id: sample.id,
+          label: sample.label,
+          featureVectors: sample.featureVectors,
+          landmarksSequence: sample.landmarksSequence,
+          centroid: sample.featureVectors[0] || [],
+        },
+      ]);
+      burstFeaturesBufferRef.current = [];
+      burstLandmarksBufferRef.current = [];
+      setRecordingLabel('');
+      alert(`🎉 Đã lưu thành công chuỗi cử chỉ '${label}' vào bộ nhớ AI local!`);
     } finally {
       setLoading(false);
     }
   };
 
   const handleAddSingleSample = async (label: string) => {
-    if (!activeLandmarks || !activeFeatureVector) return;
+    if (!activeLandmarks || !activeFeatureVector) {
+      alert('⚠️ Chưa phát hiện thấy bàn tay trong camera! Vui lòng giơ tay trước camera trước khi bấm Chụp Mẫu.');
+      return;
+    }
     
     const sample: GestureSample = {
       id: `${label}_single_${Date.now()}`,
@@ -730,8 +823,21 @@ function App() {
     try {
       await api.addSample(sample, currentUser?.userId);
       await loadData();
+      alert(`🎉 Đã chụp mẫu và huấn luyện thành công cử chỉ '${label.toUpperCase()}'!`);
     } catch (err) {
       console.error(err);
+      setSamples((prev) => [...prev, sample]);
+      setTemplates((prev) => [
+        ...prev,
+        {
+          id: sample.id,
+          label: sample.label,
+          featureVectors: sample.featureVectors,
+          landmarksSequence: sample.landmarksSequence,
+          centroid: sample.featureVectors[0] || [],
+        },
+      ]);
+      alert(`🎉 Đã lưu thành công mẫu cử chỉ '${label.toUpperCase()}' vào bộ nhớ AI local!`);
     } finally {
       setLoading(false);
     }
@@ -1740,6 +1846,9 @@ function App() {
               onTriggerOptimize={handleTriggerOptimize}
               isRecording={isRecording}
               recordingProgress={recordingProgress}
+              labelMappings={labelMappings}
+              onUpdateLabelMapping={handleUpdateLabelMapping}
+              onResetLabelMapping={handleResetLabelMapping}
             />
           )}
 
