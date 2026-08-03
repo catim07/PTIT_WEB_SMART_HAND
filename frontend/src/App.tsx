@@ -211,8 +211,7 @@ function App() {
       !rawLabel || 
       rawLabel === 'ĐANG PHÂN TÍCH...' || 
       rawLabel === 'KHÔNG PHÁT HIỆN TAY' || 
-      rawLabel === 'CHƯA CÓ DỮ LIỆU' ||
-      rawLabel.startsWith('SO_')
+      rawLabel === 'CHƯA CÓ DỮ LIỆU'
     ) {
       return;
     }
@@ -669,13 +668,14 @@ function App() {
     setPrediction((prev) => (prev === fingerInfo.details ? prev : fingerInfo.details));
     setConfidence(0.88);
 
-    // 2. Hysteresis stability check: Require 8 consecutive stable frames (~250ms) before sentence lock-in
-    // Ignore raw finger count heuristics (SO_0..SO_5) for sentence auto-appending
-    if (fingerInfo.label && !fingerInfo.label.startsWith('SO_')) {
+    // 2. Hysteresis stability check: Require stable frames (~250ms) before sentence lock-in
+    if (fingerInfo.label && fingerInfo.label.trim() !== '') {
       if (activeGestureLabelRef.current === fingerInfo.label) {
         const lockLimit = userPreferences.lockFrameThreshold || 8;
         if (gestureStableCounterRef.current === lockLimit) {
           tryAppendWordToSentence(fingerInfo.label);
+        } else {
+          gestureStableCounterRef.current += 1;
         }
       } else {
         activeGestureLabelRef.current = fingerInfo.label;
