@@ -21,7 +21,7 @@ import { QuickCommunicationCards } from './components/QuickCommunicationCards';
 import { LiveChatHub, type ChatMessage } from './components/LiveChatHub';
 
 import { type Landmark, type GestureSample, type GestureTemplate, type SystemSettings, type RecognitionStats } from './types';
-import { extractFeatures, countExtendedFingers, resetEMAFilter } from './utils/algorithm';
+import { extractFeatures, countExtendedFingers, resetEMAFilter, detectDualHandGesture } from './utils/algorithm';
 import { drawHandSkeleton } from './utils/drawing';
 import * as api from './utils/api';
 
@@ -83,6 +83,7 @@ function App() {
   // Smart 2-Way Live Chat State
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [mainViewTab, setMainViewTab] = useState<'WORKSPACE' | 'LIVE_CHAT'>('WORKSPACE');
+  const [disabledLabels, setDisabledLabels] = useState<Set<string>>(new Set());
   
   // Correction modal state
   const [showCorrectionModal, setShowCorrectionModal] = useState<boolean>(false);
@@ -514,7 +515,23 @@ function App() {
     hasActiveHandRef.current = true;
     setActiveLandmarks(activeHand);
 
-    const fingerInfo = countExtendedFingers(activeHand);
+    let fingerInfo: { count: number; label: string; details: string };
+
+    if (leftHand && leftHand.length === 21 && rightHand && rightHand.length === 21) {
+      const dualResult = detectDualHandGesture(leftHand, rightHand);
+      if (dualResult) {
+        fingerInfo = { count: 10, label: dualResult.label, details: dualResult.details };
+      } else {
+        fingerInfo = countExtendedFingers(activeHand);
+      }
+    } else {
+      fingerInfo = countExtendedFingers(activeHand);
+    }
+
+    if (disabledLabels.has(fingerInfo.label.toUpperCase())) {
+      fingerInfo = { count: 0, label: '', details: 'KHÔNG PHÁT HIỆN TAY' };
+    }
+
     const { featureVector } = extractFeatures(activeHand, pose);
     setActiveFeatureVector(featureVector);
 
@@ -676,6 +693,7 @@ function App() {
     setLoading(true);
     try {
       await api.deleteGesture(label);
+      setDisabledLabels((prev) => new Set(prev).add(label.toUpperCase()));
       await loadData();
     } catch (err) {
       console.error(err);

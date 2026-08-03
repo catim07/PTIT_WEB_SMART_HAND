@@ -36,7 +36,9 @@ const QUICK_CARDS: QuickCard[] = [
   { id: 'travel_2', category: 'TRAVEL', title: 'Nhà Vệ Sinh Ở Đâu?', signKeyword: 'HELLO', fullSpeech: 'Xin hỏi nhà vệ sinh gần nhất ở đâu ạ?', icon: '🚻' },
   { id: 'travel_3', category: 'TRAVEL', title: 'Gọi Xe Ô Tô / Taxi', signKeyword: 'HELLO', fullSpeech: 'Giúp tôi gọi một chuyến xe taxi hoặc Grab với.', icon: '🚖' },
 
-  // Greeting & Feeling
+  // Greeting & Feeling & Academic Demo
+  { id: 'demo_ptit_1', category: 'GREETING', title: 'Báo Cáo Đồ Án PTIT', signKeyword: 'CHUU_P', fullSpeech: 'Em chào Thầy! Nhóm sinh viên PTIT xin kính trình bày báo cáo đồ án hệ thống SignLink AI.', icon: '🎓' },
+  { id: 'demo_ptit_2', category: 'GREETING', title: 'Cảm Ơn Thầy & Hội Đồng', signKeyword: 'CHUU_T', fullSpeech: 'Chúng em xin chân thành cảm ơn Thầy và Hội đồng chấm đồ án đã lắng nghe!', icon: '👨‍🏫' },
   { id: 'greet_1', category: 'GREETING', title: 'Xin Chào Rất Vui Gặp Bạn', signKeyword: 'HELLO', fullSpeech: 'Xin chào bạn! Rất vui được gặp bạn hôm nay.', icon: '👋' },
   { id: 'greet_2', category: 'GREETING', title: 'Cảm Ơn Rất Nhiều', signKeyword: 'CAM_ON', fullSpeech: 'Cảm ơn sự hỗ trợ nhiệt tình của bạn rất nhiều!', icon: '🙏' },
   { id: 'greet_3', category: 'GREETING', title: 'Xin Lỗi Bạn', signKeyword: 'XIN_LOI', fullSpeech: 'Xin lỗi bạn vì sự bất tiện này.', icon: '🙇' },
