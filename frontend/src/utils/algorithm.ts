@@ -452,9 +452,11 @@ export function countExtendedFingers(handLandmarks: Landmark[]): { count: number
   const isRingOpen = getDistance3D(ringTip, wrist) > getDistance3D(handLandmarks[14], wrist) * 1.12;
   const isPinkyOpen = getDistance3D(pinkyTip, wrist) > getDistance3D(handLandmarks[18], wrist) * 1.12;
 
-  // 1. BAN_TIM (Finger Heart 🫰): Thumb Tip (4) and Index Tip (8) pinched close (<0.08 in 3D) while Middle/Ring/Pinky are folded
+  // 1. BAN_TIM (Finger Heart 🫰): Thumb Tip (4) and Index Tip (8) pinched close (<0.085 in 3D) while Index is extended outward (not folded deep in fist)
   const thumbIndexDist = getDistance3D(thumbTip, indexTip);
-  if (thumbIndexDist < 0.085 && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+  const indexWristDist = getDistance3D(indexTip, wrist);
+  const indexPipDist = getDistance3D(handLandmarks[6], wrist);
+  if (thumbIndexDist < 0.085 && indexWristDist > indexPipDist * 0.95 && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
     return { count: 2, label: 'BAN_TIM', details: 'BAN_TIM (Bắn Tim 🫰)' };
   }
 
@@ -575,6 +577,31 @@ export function countExtendedFingers(handLandmarks: Landmark[]): { count: number
   // 20. LETTER_Y (Chữ Y): Thumb & Pinky extended out (Hang Loose / Shaka)
   if (isThumbOpen && isPinkyOpen && !isIndexOpen && !isMiddleOpen && !isRingOpen) {
     return { count: 2, label: 'CHUU_Y', details: 'CHUU_Y (Chữ Y)' };
+  }
+
+  // 21. LETTER_K (Chữ K): Index UP + Middle forward/angled
+  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && getDistance3D(thumbTip, handLandmarks[9]) < 0.12) {
+    return { count: 2, label: 'CHUU_K', details: 'CHUU_K (Chữ K)' };
+  }
+
+  // 22. LETTER_Q (Chữ Q): Index & Thumb pointing DOWN forming a hook
+  if (indexTip.y > handLandmarks[5].y && isThumbOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+    return { count: 2, label: 'CHUU_Q', details: 'CHUU_Q (Chữ Q)' };
+  }
+
+  // 23. LETTER_R (Chữ R): Index crossed over Middle finger
+  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && getDistance3D(indexTip, middleTip) < 0.035) {
+    return { count: 2, label: 'CHUU_R', details: 'CHUU_R (Chữ R)' };
+  }
+
+  // 24. Closed Fist (Nắm Đấm / Nắm Tay): All 5 fingers folded
+  if (!isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen && !isThumbOpen) {
+    return { count: 0, label: 'SO_0', details: 'SO_0 (Nắm Tay)' };
+  }
+
+  // 25. LETTER_X (Chữ X): Index finger bent into a hook shape
+  if (!isMiddleOpen && !isRingOpen && !isPinkyOpen && getDistance3D(indexTip, wrist) < getDistance3D(handLandmarks[6], wrist)) {
+    return { count: 1, label: 'CHUU_X', details: 'CHUU_X (Chữ X)' };
   }
 
   let count = 0;
