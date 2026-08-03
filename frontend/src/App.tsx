@@ -81,21 +81,8 @@ function App() {
   const [sosActive, setSosActive] = useState<boolean>(false);
   
   // Smart 2-Way Live Chat State
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [mainViewTab, setMainViewTab] = useState<'WORKSPACE' | 'LIVE_CHAT'>('WORKSPACE');
-
-  const addChatMessage = useCallback((text: string, sender: 'DEAF' | 'HEARING', signKeyword?: string) => {
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        sender,
-        text,
-        signKeyword,
-        timestamp: Date.now(),
-      },
-    ]);
-  }, []);
   
   // Correction modal state
   const [showCorrectionModal, setShowCorrectionModal] = useState<boolean>(false);
@@ -120,20 +107,28 @@ function App() {
   const activeGestureLabelRef = useRef<string>('');
   const gestureStableCounterRef = useRef<number>(0);
   const lastSpokenTextRef = useRef<string>('');
-  const lastSpokenTimeRef = useRef<number>(0);
+  const lastSpokenTimeRef = useRef<number>(0);  const hasActiveHandRef = useRef<boolean>(false);
+  const [isSentencePaused, setIsSentencePaused] = useState<boolean>(false);
 
-  // Helper to check if two gesture labels are semantic synonyms (e.g. SO_5 and HI)
+  // Helper to check if two gesture labels are semantic synonyms
   const isSynonymGesture = (w1: string, w2: string) => {
     if (!w1 || !w2) return false;
     if (w1 === w2) return true;
-    const greetings = ['SO_5', 'HI', 'HELLO', 'XIN_CHAO', 'XIN_CHÀO'];
+    const greetings = ['HI', 'HELLO', 'XIN_CHAO', 'XIN_CHÀO'];
     if (greetings.includes(w1) && greetings.includes(w2)) return true;
     return false;
   };
 
   // Streamlined instant sentence builder for real-time continuous gesture stream
   const tryAppendWordToSentence = useCallback((rawLabel: string) => {
-    if (!rawLabel || rawLabel === 'ĐANG PHÂN TÍCH...' || rawLabel === 'KHÔNG PHÁT HIỆN TAY' || rawLabel === 'CHƯA CÓ DỮ LIỆU') {
+    if (!hasActiveHandRef.current || isSentencePaused) return;
+    if (
+      !rawLabel || 
+      rawLabel === 'ĐANG PHÂN TÍCH...' || 
+      rawLabel === 'KHÔNG PHÁT HIỆN TAY' || 
+      rawLabel === 'CHƯA CÓ DỮ LIỆU' ||
+      rawLabel.startsWith('SO_')
+    ) {
       return;
     }
 
@@ -143,8 +138,8 @@ function App() {
     const now = Date.now();
     const last = lastAppendedWordRef.current;
 
-    // Avoid duplicate rapid append if same word or synonym appended < 2000ms ago
-    if (isSynonymGesture(last.label, cleanLabel) && now - last.time < 2000) {
+    // Avoid duplicate rapid append if same word or synonym appended < 2500ms ago
+    if (isSynonymGesture(last.label, cleanLabel) && now - last.time < 2500) {
       return;
     }
 
@@ -152,7 +147,7 @@ function App() {
 
     setSentence((prev) => {
       const lastInSentence = prev.length > 0 ? prev[prev.length - 1] : '';
-      if (prev.length > 0 && isSynonymGesture(lastInSentence, cleanLabel) && now - last.time < 2000) {
+      if (prev.length > 0 && isSynonymGesture(lastInSentence, cleanLabel) && now - last.time < 2500) {
         return prev;
       }
       const updated = [...prev, cleanLabel];
@@ -166,7 +161,7 @@ function App() {
     });
 
     speakText(cleanLabel.toLowerCase());
-  }, []);
+  }, [isSentencePaused]);
 
   // Update recording reference
   useEffect(() => {
@@ -279,7 +274,23 @@ function App() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === 'PREDICTION') {
+          if (data.type === 'CHAT_MESSAGE') {
+            const senderRole = data.senderRole || 'Đối Phương';
+            const text = data.text;
+            if (text) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+                  sender: 'OTHER',
+                  text: `[${senderRole}]: ${text}`,
+                  timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                },
+              ]);
+              speakText(text);
+            }
+          } else if (data.type === 'PREDICTION') {
+            if (!hasActiveHandRef.current) return; // Strict guard: Ignore predictions if no hand in frame
             const finalLabel = data.predicted;
             const avgConfidence = data.confidence;
             const feedbackMsg = data.feedback;
@@ -297,17 +308,11 @@ function App() {
             setTrajectoryMatch(data.trajectoryMatch || 0);
             setRawFeatures(data.features || null);
 
-            // Streamlined zero-latency continuous sentence builder
-            if (finalLabel !== 'ĐANG PHÂN TÍCH...' && finalLabel !== 'CHƯA CÓ DỮ LIỆU' && finalLabel !== 'KHÔNG PHÁT HIỆN TAY') {
-              if (finalLabel === 'SOS') {
-                if (!sosActive) {
-                  setSosActive(true);
-                  setSentence(prev => [...prev, 'SOS']);
-                  speakText("Phát hiện tín hiệu khẩn cấp!");
-                }
-              } else {
-                tryAppendWordToSentence(finalLabel);
-              }
+            // Handle SOS Emergency Alert signal from backend
+            if (finalLabel === 'SOS' && avgConfidence >= 0.80 && !sosActive) {
+              setSosActive(true);
+              setSentence(prev => [...prev, 'SOS']);
+              speakText("Phát hiện tín hiệu khẩn cấp!");
             } else {
               lockInTargetLabelRef.current = null;
               lockInCounterRef.current = 0;
@@ -362,6 +367,28 @@ function App() {
         console.warn('Speech synthesis error:', e);
       }
     }, 0);
+  };
+
+  const addChatMessage = (text: string, sender: 'DEAF' | 'HEARING', signKeyword?: string) => {
+    if (!text || !text.trim()) return;
+    const msgObj: ChatMessage = {
+      id: Date.now().toString(),
+      sender: sender === 'DEAF' ? 'ME' : 'OTHER',
+      text: text.trim(),
+      signKeyword,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    setMessages((prev) => [...prev, msgObj]);
+
+    // Broadcast real-time remote WebSocket message to all other connected clients
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'CHAT_MESSAGE',
+        text: text.trim(),
+        sender: sender === 'DEAF' ? 'Người Khiếm Thính (Ký hiệu)' : 'Người Bình Thường (Tiếng nói)',
+        signKeyword,
+      }));
+    }
   };
 
   // --- Speech-to-Text Recognition Setup (Two-way communication) ---
@@ -484,6 +511,7 @@ function App() {
       return;
     }
 
+    hasActiveHandRef.current = true;
     setActiveLandmarks(activeHand);
 
     const fingerInfo = countExtendedFingers(activeHand);
@@ -494,15 +522,21 @@ function App() {
     setPrediction((prev) => (prev === fingerInfo.details ? prev : fingerInfo.details));
     setConfidence(0.88);
 
-    // 2. Hysteresis stability check: Require 3 consecutive stable frames (~90ms) before sentence lock-in
-    if (activeGestureLabelRef.current === fingerInfo.label) {
-      gestureStableCounterRef.current += 1;
-      if (gestureStableCounterRef.current === 3) {
-        tryAppendWordToSentence(fingerInfo.label);
+    // 2. Hysteresis stability check: Require 8 consecutive stable frames (~250ms) before sentence lock-in
+    // Ignore raw finger count heuristics (SO_0..SO_5) for sentence auto-appending
+    if (fingerInfo.label && !fingerInfo.label.startsWith('SO_')) {
+      if (activeGestureLabelRef.current === fingerInfo.label) {
+        gestureStableCounterRef.current += 1;
+        if (gestureStableCounterRef.current === 8) {
+          tryAppendWordToSentence(fingerInfo.label);
+        }
+      } else {
+        activeGestureLabelRef.current = fingerInfo.label;
+        gestureStableCounterRef.current = 1;
       }
     } else {
-      activeGestureLabelRef.current = fingerInfo.label;
-      gestureStableCounterRef.current = 1;
+      activeGestureLabelRef.current = '';
+      gestureStableCounterRef.current = 0;
     }
 
     const fWindow = featureWindowRef.current;
@@ -550,7 +584,7 @@ function App() {
     if (pose && pose[0]) {
       fullFrame.push({ x: pose[0].x, y: pose[0].y, z: pose[0].z, visibility: 1 });
     } else {
-      fullFrame.push({ x: 0, y: 0, z: 0, visibility: 0 });
+      for (let i = 0; i < 1; i++) fullFrame.push({ x: 0, y: 0, z: 0, visibility: 0 });
     }
 
     wsCounterRef.current += 1;
@@ -563,6 +597,7 @@ function App() {
   }, [sosActive]);
 
   const handleTrackingLost = useCallback(() => {
+    hasActiveHandRef.current = false;
     setActiveLandmarks(null);
     setActiveFeatureVector(null);
     setPrediction('KHÔNG PHÁT HIỆN TAY');
@@ -575,6 +610,9 @@ function App() {
     lockInTargetLabelRef.current = null;
     lockInCounterRef.current = 0;
     setLockInProgress(0);
+
+    activeGestureLabelRef.current = '';
+    gestureStableCounterRef.current = 0;
   }, []);
 
   const saveBurstSequence = async () => {
@@ -911,7 +949,7 @@ function App() {
       {mainViewTab === 'LIVE_CHAT' ? (
         <main style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
           <LiveChatHub
-            messages={chatMessages}
+            messages={messages}
             onSendMessage={(text, sender, keyword) => addChatMessage(text, sender, keyword)}
             onSpeak={speakText}
             templates={templates}
@@ -1068,6 +1106,24 @@ function App() {
               </div>
             )}
           </div>
+
+          {/* Smart AI Sentence Builder Component */}
+          <SmartSentenceBuilder
+            sentence={sentence}
+            onClear={() => setSentence([])}
+            onBackspace={() => setSentence((prev) => prev.slice(0, -1))}
+            onAddWord={(word) => tryAppendWordToSentence(word)}
+            onSpeak={speakText}
+            onSendToChat={(txt) => {
+              setMessages((prev) => [
+                ...prev,
+                { id: Date.now().toString(), sender: 'ME', text: txt, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+              ]);
+            }}
+            candidates={candidates.map((c) => c.split(' ')[0])}
+            isPaused={isSentencePaused}
+            onTogglePause={() => setIsSentencePaused((prev) => !prev)}
+          />
 
           {/* Developer Mode Panels */}
           {developerMode && (
@@ -1609,7 +1665,7 @@ function App() {
                 CHỌN NHANH TỪ DANH SÁCH CỬ CHỈ ĐÚNG:
               </span>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto', padding: '4px' }}>
-                {['BAN_TIM', 'LIKE', 'CAM_ON', 'XIN_LOI', 'TAM_BIET', 'SO_5', 'SO_4', 'SO_3', 'SO_2', 'SO_1', 'OK', 'LOVE_YOU', 'SOS', 'HELLO', 'UONG_NUOC', 'AN_COM', ...templates.map((t) => t.label)]
+                {['CHUU_A', 'CHUU_B', 'CHUU_C', 'CHUU_D', 'CHUU_E', 'CHUU_G', 'CHUU_H', 'CHUU_I', 'CHUU_L', 'CHUU_M', 'CHUU_N', 'CHUU_O', 'CHUU_U', 'CHUU_V', 'CHUU_W', 'CHUU_Y', 'BAN_TIM', 'LIKE', 'CAM_ON', 'XIN_LOI', 'TAM_BIET', 'SO_5', 'SO_4', 'SO_3', 'SO_2', 'SO_1', 'OK', 'LOVE_YOU', 'SOS', 'HELLO', 'UONG_NUOC', 'AN_COM', ...templates.map((t) => t.label)]
                   .filter((val, idx, self) => self.indexOf(val) === idx)
                   .map((itemLabel) => (
                     <button

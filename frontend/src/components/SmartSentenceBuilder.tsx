@@ -7,7 +7,9 @@ import {
   Plus, 
   Wand2, 
   Send,
-  Lightbulb
+  Lightbulb,
+  Pause,
+  Play
 } from 'lucide-react';
 
 interface SmartSentenceBuilderProps {
@@ -18,6 +20,8 @@ interface SmartSentenceBuilderProps {
   onSpeak: (text: string) => void;
   onSendToChat?: (text: string) => void;
   candidates: string[];
+  isPaused?: boolean;
+  onTogglePause?: () => void;
 }
 
 export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
@@ -28,6 +32,8 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
   onSpeak,
   onSendToChat,
   candidates,
+  isPaused = false,
+  onTogglePause,
 }) => {
   const [naturalSentence, setNaturalSentence] = useState<string>('');
   const [autoSpeakEnabled] = useState<boolean>(true);
@@ -86,9 +92,33 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
     return joined.charAt(0).toUpperCase() + joined.slice(1) + '.';
   };
 
+  // Web Audio API Audio Chime Feedback (Zero external mp3 asset dependency)
+  const playRecognitionChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime); // A5 note
+      osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.1); // E6 note
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.15);
+    } catch (e) {}
+  };
+
   useEffect(() => {
     const formatted = formatNaturalSentence(sentence);
     setNaturalSentence(formatted);
+
+    if (sentence.length > 0) {
+      playRecognitionChime();
+    }
 
     if (autoSpeakEnabled && formatted && sentence.length > 0) {
       // Small debounce before speaking
@@ -114,6 +144,30 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
     }
   };
 
+  const getContextSuggestions = (words: string[]): string[] => {
+    if (!words || words.length === 0) {
+      return ['XIN_CHAO', 'CAM_ON', 'UONG_NUOC', 'AN_COM', 'SOS'];
+    }
+    const lastWord = words[words.length - 1].toUpperCase();
+    if (lastWord === 'XIN_CHAO' || lastWord === 'HELLO') {
+      return ['BẠN', 'RẤT_VUI', 'CẢM_ƠN', 'KHỎE_KHÔNG'];
+    }
+    if (lastWord === 'TOI' || lastWord === 'TÔI') {
+      return ['MUỐN', 'CẦN', 'THÍCH', 'YÊU', 'UONG_NUOC', 'AN_COM'];
+    }
+    if (lastWord === 'UONG_NUOC') {
+      return ['CỐC_NƯỚC', 'CĂN_TIN', 'CẢM_ƠN'];
+    }
+    if (lastWord === 'BAN_TIM' || lastWord === 'LIKE') {
+      return ['CẢM_ƠN', 'RẤT_THÍCH', 'YÊU_THƯƠNG', 'OK'];
+    }
+    return ['CẢM_ƠN', 'BẠN', 'GIÚP', 'CẦN', 'OK'];
+  };
+
+  const dynamicSuggestions = candidates && candidates.length > 0 
+    ? Array.from(new Set([...candidates.map(c => c.split(' ')[0]), ...getContextSuggestions(sentence)]))
+    : getContextSuggestions(sentence);
+
   return (
     <div className="card" style={{ background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(0, 242, 254, 0.2)', borderRadius: '16px', padding: '18px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
@@ -128,6 +182,23 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
         </div>
 
         <div style={{ display: 'flex', gap: '6px' }}>
+          {onTogglePause && (
+            <button 
+              className="btn btn-secondary btn-small" 
+              onClick={onTogglePause}
+              title={isPaused ? "Bấm để tiếp tục tự động ghép từ từ camera" : "Tạm dừng ghép từ mới để dễ sửa câu"}
+              style={{
+                padding: '6px 10px',
+                fontSize: '0.8rem',
+                borderColor: isPaused ? '#f59e0b' : 'rgba(0, 242, 254, 0.4)',
+                color: isPaused ? '#f59e0b' : 'var(--color-primary)',
+                background: isPaused ? 'rgba(245, 158, 11, 0.15)' : 'rgba(0, 242, 254, 0.08)',
+                fontWeight: '600'
+              }}
+            >
+              {isPaused ? <Play size={14} /> : <Pause size={14} />} {isPaused ? 'Tiếp tục ghép' : 'Tạm dừng ghép'}
+            </button>
+          )}
           <button 
             className="btn btn-secondary btn-small" 
             onClick={onBackspace}
@@ -212,7 +283,7 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
         </div>
       )}
 
-      {/* Smart Predictive Context Pills (Markov Suggestions) */}
+      {/* Smart Predictive Context Pills (Markov Intelligence) */}
       <div style={{ background: 'rgba(0, 0, 0, 0.2)', padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)', marginBottom: '8px' }}>
           <Lightbulb size={14} style={{ color: '#f59e0b' }} />
@@ -220,38 +291,26 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-          {candidates && candidates.length > 0 ? (
-            candidates.map((cand, idx) => {
-              const cleanCand = cand.split(' ')[0];
-              return (
-                <button
-                  key={idx}
-                  onClick={() => onAddWord(cleanCand)}
-                  className="btn btn-secondary btn-small"
-                  style={{
-                    fontSize: '0.78rem',
-                    padding: '4px 10px',
-                    borderRadius: '16px',
-                    borderColor: 'rgba(0, 242, 254, 0.4)',
-                    color: 'var(--color-primary)',
-                    background: 'rgba(0, 242, 254, 0.06)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <Plus size={12} /> {cleanCand}
-                </button>
-              );
-            })
-          ) : (
-            <>
-              <button onClick={() => onAddWord('MUỐN')} className="btn btn-secondary btn-small" style={{ fontSize: '0.78rem', padding: '4px 10px', borderRadius: '16px', color: 'rgba(255,255,255,0.8)' }}>+ MUỐN</button>
-              <button onClick={() => onAddWord('CẦN')} className="btn btn-secondary btn-small" style={{ fontSize: '0.78rem', padding: '4px 10px', borderRadius: '16px', color: 'rgba(255,255,255,0.8)' }}>+ CẦN</button>
-              <button onClick={() => onAddWord('THÍCH')} className="btn btn-secondary btn-small" style={{ fontSize: '0.78rem', padding: '4px 10px', borderRadius: '16px', color: 'rgba(255,255,255,0.8)' }}>+ THÍCH</button>
-              <button onClick={() => onAddWord('GIÚP')} className="btn btn-secondary btn-small" style={{ fontSize: '0.78rem', padding: '4px 10px', borderRadius: '16px', color: 'rgba(255,255,255,0.8)' }}>+ GIÚP</button>
-            </>
-          )}
+          {dynamicSuggestions.map((cand, idx) => (
+            <button
+              key={idx}
+              onClick={() => onAddWord(cand)}
+              className="btn btn-secondary btn-small"
+              style={{
+                fontSize: '0.78rem',
+                padding: '4px 10px',
+                borderRadius: '16px',
+                borderColor: 'rgba(0, 242, 254, 0.4)',
+                color: 'var(--color-primary)',
+                background: 'rgba(0, 242, 254, 0.06)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <Plus size={12} /> {cand}
+            </button>
+          ))}
         </div>
       </div>
     </div>

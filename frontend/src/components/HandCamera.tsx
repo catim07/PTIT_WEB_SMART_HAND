@@ -35,11 +35,11 @@ const FRAME_INTERVAL_MS = 33; // 30 FPS
  */
 const getUserMediaWithTimeout = (
   constraints: MediaStreamConstraints,
-  timeoutMs = 5000
+  timeoutMs = 1500
 ): Promise<MediaStream> => {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error('HARDWARE_TIMEOUT: Thời gian phản hồi của thiết bị Camera vượt quá 5 giây.'));
+      reject(new Error('HARDWARE_TIMEOUT: Thời gian phản hồi của thiết bị Camera vượt quá 1.5 giây.'));
     }, timeoutMs);
 
     navigator.mediaDevices
@@ -62,7 +62,6 @@ export const HandCamera: React.FC<HandCameraProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const aiEngineRef = useRef<any>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
@@ -108,32 +107,31 @@ export const HandCamera: React.FC<HandCameraProps> = ({
       }
       aiEngineRef.current = null;
     }
-    offscreenCanvasRef.current = null;
+    isAIEvaluatingRef.current = false;
+    lastResultsTimestampRef.current = Date.now();
 
     setTimeout(() => {
       setIsResettingAI(false);
       setResetSuccessMessage(true);
-      setRetryCount((prev) => prev + 1);
       setTimeout(() => setResetSuccessMessage(false), 3000);
     }, 400);
   };
 
-  // Automated AI Stall Watchdog: Monitors AI frame timestamps and auto-resets on freeze (>1600ms)
+  // Automated AI Stall Watchdog: Releases evaluation lock if MediaPipe stalls (>4000ms) without tearing down camera stream
   useEffect(() => {
     if (!cameraActive || isSimulating) return;
 
     const watchdogInterval = setInterval(() => {
       const elapsed = Date.now() - lastResultsTimestampRef.current;
-      if (elapsed > 1600 && !isResettingAI) {
-        console.warn(`[AI Watchdog] MediaPipe response stalled for ${elapsed}ms. Auto-healing...`);
+      if (elapsed > 4000 && isAIEvaluatingRef.current) {
+        console.warn(`[AI Watchdog] MediaPipe response stalled for ${elapsed}ms. Re-releasing frame lock...`);
         lastResultsTimestampRef.current = Date.now();
         isAIEvaluatingRef.current = false;
-        handleResetAIEngine();
       }
-    }, 400);
+    }, 1000);
 
     return () => clearInterval(watchdogInterval);
-  }, [cameraActive, isSimulating, isResettingAI]);
+  }, [cameraActive, isSimulating]);
 
   // Enumerate video devices
   const checkVideoDevices = async () => {
@@ -451,7 +449,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             rightHand = results.rightHandLandmarks;
             drawHandSkeleton(
               ctx,
-              rightHand,
+              results.rightHandLandmarks,
               canvas.width,
               canvas.height,
               isRecording
@@ -464,7 +462,7 @@ export const HandCamera: React.FC<HandCameraProps> = ({
             leftHand = results.leftHandLandmarks;
             drawHandSkeleton(
               ctx,
-              leftHand,
+              results.leftHandLandmarks,
               canvas.width,
               canvas.height,
               isRecording
@@ -472,9 +470,10 @@ export const HandCamera: React.FC<HandCameraProps> = ({
           }
 
           if (results.poseLandmarks) {
-            pose = results.poseLandmarks;
-            const leftShoulder = pose[11];
-            const rightShoulder = pose[12];
+            const currentPose: Landmark[] = results.poseLandmarks;
+            pose = currentPose;
+            const leftShoulder = currentPose[11];
+            const rightShoulder = currentPose[12];
 
             if (leftShoulder && rightShoulder) {
               ctx.beginPath();
@@ -706,9 +705,29 @@ export const HandCamera: React.FC<HandCameraProps> = ({
 
       {/* Loading Overlay */}
       {modelLoading && !isSimulating && !errorType && (
-        <div className="camera-placeholder">
-          <Loader2 className="animate-spin" size={48} style={{ color: 'var(--color-primary)' }} />
-          <p style={{ marginTop: '12px' }}>Đang kết nối Camera Thật...</p>
+        <div className="camera-placeholder" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+          <Loader2 className="animate-spin" size={42} style={{ color: 'var(--color-primary)' }} />
+          <p style={{ margin: 0, fontSize: '0.95rem', color: '#fff', fontWeight: '600' }}>Đang kết nối Camera Thật...</p>
+
+          <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+            <button
+              className="btn btn-primary btn-small"
+              onClick={handleForceRetryCamera}
+              style={{ fontSize: '0.78rem', padding: '6px 12px' }}
+            >
+              <Zap size={13} /> ⚡ Ép Thử Lại Ngay
+            </button>
+            <button
+              className="btn btn-secondary btn-small"
+              onClick={() => {
+                setModelLoading(false);
+                setIsSimulating(true);
+              }}
+              style={{ fontSize: '0.78rem', padding: '6px 12px', borderColor: '#f59e0b', color: '#f59e0b' }}
+            >
+              <Play size={13} /> 🎬 Bật Mô Phỏng 3D
+            </button>
+          </div>
         </div>
       )}
 

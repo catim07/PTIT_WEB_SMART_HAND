@@ -1,8 +1,8 @@
 # SignLink AI - Hệ Thống Nhận Diện Ngôn Ngữ Ký Hiệu & Cử Chỉ Tay Thông Minh
 
-Dự án nghiên cứu và phát triển hệ thống nhận diện ngôn ngữ ký hiệu và cử chỉ tay (khẩu hình tay) thời gian thực cho môn **Phát triển các hệ thống thông minh**. Hệ thống được xây dựng full-stack sử dụng **React + TypeScript** ở frontend và **Node.js (Express) + TypeScript** ở backend.
+Dự án nghiên cứu và phát triển hệ thống nhận diện ngôn ngữ ký hiệu và cử chỉ tay thời gian thực cho môn **Phát triển các hệ thống thông minh**. Hệ thống được xây dựng full-stack sử dụng **React + TypeScript + Vite** ở frontend và **Java (Spring Boot 3.3.0) + WebSocket** ở backend.
 
-Điểm cốt lõi của dự án là **không sử dụng** bất kỳ thư viện Học máy có sẵn nào để phân loại cử chỉ (như TensorFlow, Keras hay Scikit-Learn). Thay vào đó, toàn bộ giải thuật tiền xử lý, trích xuất đặc trưng hình học, phân loại lân cận (KNN), và học thích ứng trực tuyến đều được **tự lập trình từ đầu bằng TypeScript**.
+Điểm cốt lõi của dự án là **không sử dụng** bất kỳ thư viện Học máy có sẵn nào để phân loại cử chỉ (như TensorFlow, Keras hay Scikit-Learn). Thay vào đó, toàn bộ giải thuật tiền xử lý, trích xuất đặc trưng hình học (GFEE - 78 dimensions), phân loại lân cận (KNN), và học thích ứng trực tuyến (Online Template Adaptation & Active Feedback Loop) đều được **tự lập trình từ đầu**.
 
 ---
 
@@ -16,37 +16,43 @@ Dự án nghiên cứu và phát triển hệ thống nhận diện ngôn ngữ 
    * Tính toán khoảng cách Euclidean và biểu quyết theo trọng số khoảng cách: Mẫu càng giống thì trọng số bỏ phiếu càng cao.
 
 2. **Cơ chế Tự hiệu chuẩn thích ứng trực tuyến (Online Template Adaptation)**:
-   * Khi người dùng thực hiện một cử chỉ với độ tin cậy cực cao ($>96\%$), hệ thống sẽ tự động cập nhật vector mẫu trong bộ nhớ để dịch chuyển nhẹ về phía tay của người dùng hiện tại (sử dụng Moving Average với Learning Rate $\approx 3\%$).
+   * Khi người dùng thực hiện một cử chỉ với độ tin cậy cực cao, hệ thống sẽ tự động cập nhật vector mẫu trong bộ nhớ để dịch chuyển nhẹ về phía tay của người dùng hiện tại (Moving Average).
    * Quá trình này giúp hệ thống tự điều chỉnh để tương thích hoàn hảo với kích thước tay và thói quen góc nghiêng của từng người dùng cụ thể theo thời gian.
 
 3. **Vòng lặp Phản hồi Sửa lỗi trực tiếp (Active User Feedback Loop)**:
    * Khi hệ thống nhận diện sai hoặc không chắc chắn, người dùng có thể nhấn nút **Sửa cử chỉ** và nhập nhãn đúng.
-   * Hệ thống sẽ ngay lập tức gắn nhãn mới cho tọa độ tay hiện tại, gửi về lưu trữ vào cơ sở dữ liệu làm mẫu huấn luyện mới và tự sửa chữa lỗi nhận diện ngay lập tức.
+   * Hệ thống sẽ ngay lập tức nạp vector lỗi làm mẫu huấn luyện mới, gửi về lưu trữ và tự sửa chữa lỗi nhận diện ngay lập tức.
 
 4. **Giải thuật Phân cụm K-Means Tự viết trên Backend (Custom K-Means Clustering)**:
-   * Khi số lượng mẫu huấn luyện do người dùng đóng góp tăng lên, hệ thống sẽ chạy thuật toán K-Means trên backend để gom các mẫu tương đồng thành $K$ cụm tối ưu (Centroids) cho từng chữ cái/cử chỉ.
+   * Khi số lượng mẫu huấn luyện do người dùng đóng góp tăng lên, hệ thống sẽ chạy thuật toán K-Means trên backend để gom các mẫu tương đồng thành $K$ cụm tối ưu (Centroids) cho từng cử chỉ.
    * Quá trình này giúp loại bỏ nhiễu (outliers), tối ưu hóa dung lượng lưu trữ của Database và giữ cho thuật toán KNN chạy ở tốc độ cực cao ($>30$ FPS) trên thiết bị yếu.
+
+5. **Giải Thích Kết Quả XDE (Explainability Engine)**:
+   * Hiển thị tỷ lệ phần trăm khớp chi tiết cho từng thành phần: Ngón tay (Finger Match), Lòng bàn tay (Palm Match), Chuyển động (Motion Match), Vị trí cơ thể (Body Match), Quỹ đạo (Trajectory Match).
 
 ---
 
 ## 2. Kiến Trúc Thư Mục
 
 ```text
-support_human/
-├── frontend/                  # Ứng dụng client React + TypeScript
+PTIT_WEB_SMART_HAND/
+├── frontend/                  # Ứng dụng client React + TypeScript + Vite
 │   ├── src/
-│   │   ├── components/        # Các thành phần giao diện (Camera, Trainer, Dashboard, v.v.)
-│   │   ├── utils/             # Giải thuật trích xuất đặc trưng, KNN, vẽ skeleton, và API client
+│   │   ├── components/        # Các thành phần giao diện (HandCamera, Trainer, LiveChatHub, BAE Analytics, v.v.)
+│   │   ├── utils/             # Giải thuật trích xuất đặc trưng, KNN, drawing, và API client
 │   │   ├── types.ts           # Định nghĩa kiểu dữ liệu TS
-│   │   └── index.css          # Design system giao diện tối cao cấp (Glassmorphic Dark-Mode)
-│   └── index.html             # Tích hợp CDN MediaPipe Hands
-├── backend/                   # Ứng dụng server Node.js Express + TS
-│   ├── src/
-│   │   ├── algorithms/        # Giải thuật gom cụm K-Means tự viết từ đầu
-│   │   ├── db/                # Quản lý cơ sở dữ liệu file JSON (db.json)
-│   │   ├── server.ts          # Các API Endpoint để lưu mẫu, tối ưu hóa, và ghi nhận phân tích
-│   │   └── types.ts           # Định nghĩa kiểu dữ liệu đồng bộ với frontend
-│   └── data/                  # Thư mục lưu trữ database file JSON
+│   │   └── index.css          # Design system giao diện Glassmorphic Dark-Mode
+│   └── index.html             # CDN & local MediaPipe Hands WASM
+├── backend/                   # Ứng dụng server Java Spring Boot 3.3.0
+│   ├── src/main/java/com/signlink/backend/
+│   │   ├── controller/        # Rest API Endpoints (Gestures, Logs, Users, Health)
+│   │   ├── engine/            # 9 Engine tính toán (FeatureEngine, LearningEngine, XDE, BAE, ContextEngine...)
+│   │   ├── websocket/         # WebSocket Handler stream 30 FPS thời gian thực (/ws/gesture)
+│   │   ├── model/             # MongoDB Data Models & Entities
+│   │   └── service/           # Online Learning & K-Means Optimization Services
+│   └── pom.xml                # Dependency Maven (Java 17/23, Spring Boot 3.3.0)
+├── build-backend.ps1          # Kịch bản đóng gói backend tự động phát hiện JDK
+├── run-backend.ps1            # Kịch bản khởi chạy backend JAR
 └── README.md                  # Hướng dẫn dự án
 ```
 

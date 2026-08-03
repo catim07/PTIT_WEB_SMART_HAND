@@ -478,6 +478,93 @@ export function countExtendedFingers(handLandmarks: Landmark[]): { count: number
     return { count: 3, label: 'LOVE_YOU', details: 'LOVE_YOU (Yêu Bạn 🤟)' };
   }
 
+  // 5. LETTER_A (Chữ A): Fist with Thumb resting along side
+  if (!isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen && isThumbOpen && thumbTip.y >= thumbMcp.y) {
+    return { count: 0, label: 'CHUU_A', details: 'CHUU_A (Chữ A)' };
+  }
+
+  // 6. LETTER_B (Chữ B): 4 fingers extended straight up together + Thumb tucked across palm
+  if (isIndexOpen && isMiddleOpen && isRingOpen && isPinkyOpen && !isThumbOpen) {
+    return { count: 4, label: 'CHUU_B', details: 'CHUU_B (Chữ B)' };
+  }
+
+  // 7. LETTER_C (Chữ C): All fingers curved forming a "C" shape
+  if (thumbIndexDist >= 0.09 && thumbIndexDist <= 0.24 && isIndexOpen && !isRingOpen && !isPinkyOpen && isThumbOpen) {
+    const middleDist = getDistance3D(middleTip, wrist);
+    if (middleDist < getDistance3D(indexTip, wrist) * 1.05) {
+      return { count: 1, label: 'CHUU_C', details: 'CHUU_C (Chữ C)' };
+    }
+  }
+
+  // 8. LETTER_D (Chữ D): Index finger extended UP straight + Thumb tip touching Middle & Ring tips
+  const thumbMiddleDist = getDistance3D(thumbTip, middleTip);
+  if (isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen && thumbMiddleDist < 0.10) {
+    return { count: 1, label: 'CHUU_D', details: 'CHUU_D (Chữ D)' };
+  }
+
+  // 9. LETTER_E (Chữ E): All fingertips bent touching thumb tip in a small fist
+  if (!isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen && !isThumbOpen && thumbIndexDist < 0.075) {
+    return { count: 0, label: 'CHUU_E', details: 'CHUU_E (Chữ E)' };
+  }
+
+  // 10. LETTER_G (Chữ G): Index finger & Thumb extended horizontally forming gun/claw shape
+  const indexHoriz = Math.abs(indexTip.y - handLandmarks[5].y) < 0.08 && isIndexOpen;
+  if (indexHoriz && isThumbOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+    return { count: 2, label: 'CHUU_G', details: 'CHUU_G (Chữ G)' };
+  }
+
+  // 11. LETTER_H (Chữ H): Index & Middle extended horizontally together
+  const middleHoriz = Math.abs(middleTip.y - handLandmarks[9].y) < 0.08 && isMiddleOpen;
+  if (indexHoriz && middleHoriz && !isRingOpen && !isPinkyOpen) {
+    return { count: 2, label: 'CHUU_H', details: 'CHUU_H (Chữ H)' };
+  }
+
+  // 12. LETTER_I (Chữ I): Pinky finger pointing UP straight, other fingers folded into fist
+  if (isPinkyOpen && !isIndexOpen && !isMiddleOpen && !isRingOpen && !isThumbOpen) {
+    return { count: 1, label: 'CHUU_I', details: 'CHUU_I (Chữ I)' };
+  }
+
+  // 13. LETTER_L (Chữ L): Index finger pointing UP + Thumb extended horizontally forming "L"
+  if (isIndexOpen && isThumbOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen && thumbTip.x !== indexTip.x && thumbTip.y > indexTip.y) {
+    return { count: 2, label: 'CHUU_L', details: 'CHUU_L (Chữ L)' };
+  }
+
+  // 14. LETTER_M (Chữ M): 3 fingers (Index, Middle, Ring) pointing DOWN over thumb
+  if (indexTip.y > wrist.y && middleTip.y > wrist.y && ringTip.y > wrist.y && pinkyTip.y <= wrist.y) {
+    return { count: 3, label: 'CHUU_M', details: 'CHUU_M (Chữ M)' };
+  }
+
+  // 15. LETTER_N (Chữ N): 2 fingers (Index, Middle) pointing DOWN over thumb
+  if (indexTip.y > wrist.y && middleTip.y > wrist.y && ringTip.y <= wrist.y) {
+    return { count: 2, label: 'CHUU_N', details: 'CHUU_N (Chữ N)' };
+  }
+
+  // 16. LETTER_O (Chữ O): All 5 fingertips curved meeting in an "O" circle
+  if (thumbIndexDist < 0.08 && getDistance3D(thumbTip, middleTip) < 0.08 && !isIndexOpen && !isPinkyOpen) {
+    return { count: 0, label: 'CHUU_O', details: 'CHUU_O (Chữ O)' };
+  }
+
+  // 17. LETTER_U (Chữ U): Index & Middle extended UP touching together
+  const indexMiddleDist = getDistance3D(indexTip, middleTip);
+  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && indexMiddleDist < 0.055) {
+    return { count: 2, label: 'CHUU_U', details: 'CHUU_U (Chữ U)' };
+  }
+
+  // 18. LETTER_V (Chữ V): Index & Middle extended UP spread in V-shape
+  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && indexMiddleDist >= 0.055) {
+    return { count: 2, label: 'CHUU_V', details: 'CHUU_V (Chữ V)' };
+  }
+
+  // 19. LETTER_W (Chữ W): Index, Middle, Ring extended UP spread (3 fingers)
+  if (isIndexOpen && isMiddleOpen && isRingOpen && !isPinkyOpen) {
+    return { count: 3, label: 'CHUU_W', details: 'CHUU_W (Chữ W)' };
+  }
+
+  // 20. LETTER_Y (Chữ Y): Thumb & Pinky extended out (Hang Loose / Shaka)
+  if (isThumbOpen && isPinkyOpen && !isIndexOpen && !isMiddleOpen && !isRingOpen) {
+    return { count: 2, label: 'CHUU_Y', details: 'CHUU_Y (Chữ Y)' };
+  }
+
   let count = 0;
   if (isThumbOpen) count++;
   if (isIndexOpen) count++;
@@ -499,4 +586,45 @@ export function countExtendedFingers(handLandmarks: Landmark[]): { count: number
     label: `SO_${count}`,
     details: labelMap[count] || `SO_${count} (Số ${count})`,
   };
+}
+
+/**
+ * Detects 2-hand dynamic gestures (Dual-Hand VSL) when both left and right hands are present.
+ */
+export function detectDualHandGesture(leftHand: Landmark[], rightHand: Landmark[]): { label: string; details: string } | null {
+  if (!leftHand || leftHand.length !== 21 || !rightHand || rightHand.length !== 21) {
+    return null;
+  }
+
+  const leftWrist = leftHand[0];
+  const rightWrist = rightHand[0];
+
+  // Distance between wrists
+  const wristDist = getDistance3D(leftWrist, rightWrist);
+
+  // 1. BAN_TIM_2T (Trái Tim 2 Tay 🫶): Wrists/thumbs/index tips touching
+  const leftThumb = leftHand[4];
+  const rightThumb = rightHand[4];
+  const leftIndex = leftHand[8];
+  const rightIndex = rightHand[8];
+
+  const thumbTouch = getDistance3D(leftThumb, rightThumb) < 0.12;
+  const indexTouch = getDistance3D(leftIndex, rightIndex) < 0.12;
+
+  if (thumbTouch && indexTouch) {
+    return { label: 'BAN_TIM_2T', details: 'BAN_TIM_2T (Trái Tim 2 Tay 🫶)' };
+  }
+
+  // 2. CAM_ON_2T (Cảm Ơn / Chắp Tay 🙏): Both palms pressed close together
+  const palmDist = getDistance3D(leftHand[9], rightHand[9]);
+  if (palmDist < 0.14) {
+    return { label: 'CAM_ON_2T', details: 'CAM_ON_2T (Cảm Ơn / Chắp Tay 🙏)' };
+  }
+
+  // 3. AN_COM_2T (Ăn Cơm 2 Tay 🍚): Left and right hands close near center
+  if (wristDist < 0.22 && getDistance3D(rightIndex, rightThumb) < 0.09) {
+    return { label: 'AN_COM_2T', details: 'AN_COM_2T (Ăn Cơm 2 Tay 🍚)' };
+  }
+
+  return null;
 }

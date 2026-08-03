@@ -54,6 +54,9 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
+    // ConcurrentSet to track all active remote WebSocket sessions across clients
+    private static final Set<WebSocketSession> activeSessions = ConcurrentHashMap.newKeySet();
+
     // Map to keep track of the sliding frame buffer per connection session
     private final Map<String, List<Landmark[]>> sessionBuffers = new ConcurrentHashMap<>();
     // Map to keep track of the previous predicted word for Markov Context
@@ -69,11 +72,16 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+        activeSessions.add(session);
         sessionBuffers.put(session.getId(), new ArrayList<>());
         sessionContext.put(session.getId(), "");
         sessionFrameCounters.put(session.getId(), 0);
         sessionPredictionHistory.put(session.getId(), new ArrayList<>());
-        sendTextMessage(session, Map.of("type", "INFO", "message", "Kết nối WebSocket thành công. Bắt đầu nhận dạng..."));
+        sendTextMessage(session, Map.of(
+            "type", "INFO",
+            "message", "Kết nối WebSocket thành công (" + activeSessions.size() + " người dùng trực tuyến). Bắt đầu nhận dạng...",
+            "activeUsers", activeSessions.size()
+        ));
     }
 
     @Override
@@ -100,6 +108,24 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
                     }
                 }
             }
+        } else if ("CHAT_MESSAGE".equals(type)) {
+            String text = (String) payload.get("text");
+            String sender = (String) payload.get("sender");
+            String sessionId = session.getId();
+            
+            Map<String, Object> broadcastMsg = new HashMap<>();
+            broadcastMsg.put("type", "CHAT_MESSAGE");
+            broadcastMsg.put("text", text);
+            broadcastMsg.put("senderSessionId", sessionId);
+            broadcastMsg.put("senderRole", sender != null ? sender : "Đối Phương");
+            broadcastMsg.put("timestamp", new java.text.SimpleDateFormat("HH:mm:ss").format(new Date()));
+
+            // Broadcast real-time remote chat message to ALL connected sessions
+            for (WebSocketSession s : activeSessions) {
+                if (s.isOpen()) {
+                    sendTextMessage(s, broadcastMsg);
+                }
+            }
         } else if ("PREV_WORD".equals(type)) {
             String prevWord = (String) payload.get("word");
             String oldPrevWord = sessionContext.get(session.getId());
@@ -122,6 +148,7 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
+        activeSessions.remove(session);
         sessionBuffers.remove(session.getId());
         sessionContext.remove(session.getId());
         sessionFrameCounters.remove(session.getId());
@@ -131,6 +158,26 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
     private void processRecognition(WebSocketSession session, List<Landmark[]> buffer) throws IOException {
         List<GesturePrototype> prototypes = gesturePrototypeRepository.findAll();
         if (prototypes.isEmpty()) {
+            return;
+        }
+
+        // Strict Hand Presence Check: Ensure at least one frame in buffer contains a valid non-zero hand
+        boolean hasValidHand = false;
+        for (Landmark[] frame : buffer) {
+            if (isHandNonZero(frame, 0) || isHandNonZero(frame, 21)) {
+                hasValidHand = true;
+                break;
+            }
+        }
+
+        if (!hasValidHand) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("type", "PREDICTION");
+            response.put("predicted", "KHÔNG PHÁT HIỆN TAY");
+            response.put("confidence", 0.0);
+            response.put("feedback", "Vui lòng đưa bàn tay vào khung hình camera.");
+            response.put("candidates", Collections.emptyList());
+            sendTextMessage(session, response);
             return;
         }
 
@@ -214,7 +261,8 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
 
         // 4b. CCE - Check against dynamic threshold
         double dynamicThreshold = confidenceCalibrationEngine.getDynamicThreshold(label);
-        if (confidence < dynamicThreshold) {
+        boolean isLowConfidence = confidence < dynamicThreshold;
+        if (isLowConfidence) {
             label = "ĐANG PHÂN TÍCH...";
         }
 
@@ -240,7 +288,7 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
                 }
             }
 
-            if (maxVotes >= 3) {
+            if (maxVotes >= 3 && !isLowConfidence) {
                 label = smoothedLabel;
             }
         }
@@ -312,6 +360,18 @@ public class GestureWebSocketHandler extends TextWebSocketHandler {
             }
         }
         return frame;
+    }
+
+    private boolean isHandNonZero(Landmark[] frame, int offset) {
+        if (frame == null || frame.length < offset + 21) return false;
+        double sum = 0.0;
+        for (int i = offset; i < offset + 21; i++) {
+            Landmark l = frame[i];
+            if (l != null) {
+                sum += Math.abs(l.getX()) + Math.abs(l.getY()) + Math.abs(l.getZ());
+            }
+        }
+        return sum > 0.01;
     }
 
     private void sendTextMessage(WebSocketSession session, Object payload) throws IOException {
