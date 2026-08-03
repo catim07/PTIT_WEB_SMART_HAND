@@ -16,6 +16,8 @@ import { drawHandSkeleton } from '../utils/drawing';
 export interface ChatMessage {
   id: string;
   sender: 'DEAF' | 'HEARING' | 'ME' | 'OTHER';
+  senderName?: string;
+  senderRole?: string;
   text: string;
   signKeyword?: string;
   timestamp: number | string;
@@ -23,15 +25,21 @@ export interface ChatMessage {
 
 interface LiveChatHubProps {
   messages: ChatMessage[];
+  roomId: string;
+  onRoomChange: (newRoomId: string) => void;
   onSendMessage: (text: string, sender: 'DEAF' | 'HEARING', signKeyword?: string) => void;
   onSpeak: (text: string) => void;
+  onClearChat?: () => void;
   templates: GestureTemplate[];
 }
 
 export const LiveChatHub: React.FC<LiveChatHubProps> = ({
   messages,
+  roomId,
+  onRoomChange,
   onSendMessage,
   onSpeak,
+  onClearChat,
   templates,
 }) => {
   const [inputText, setInputText] = useState('');
@@ -157,6 +165,26 @@ export const LiveChatHub: React.FC<LiveChatHubProps> = ({
     setActiveAvatarGesture(null);
   };
 
+  const exportChatLog = () => {
+    if (messages.length === 0) {
+      alert('Chưa có tin nhắn nào để xuất file nhật ký.');
+      return;
+    }
+    const logContent = messages.map((m) => {
+      const senderLabel = m.senderName || (m.sender === 'DEAF' || m.sender === 'ME' ? 'Người Khiếm Thính (Ký Hiệu)' : 'Người Bình Thường (Tiếng Nói)');
+      const timeStr = typeof m.timestamp === 'number' ? new Date(m.timestamp).toLocaleTimeString() : (m.timestamp || '');
+      return `[${timeStr}] ${senderLabel}:\n  ${m.text}${m.signKeyword ? ` (Ký hiệu 3D: ${m.signKeyword})` : ''}\n`;
+    }).join('\n----------------------------------------\n');
+
+    const blob = new Blob([`NHẬT KÝ HỘI THOẠI SIGNLINK AI 2 CHIỀU\nThời gian xuất: ${new Date().toLocaleString()}\n\n----------------------------------------\n${logContent}`], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `SignLink_ChatLog_${Date.now()}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="card" style={{ background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(0, 242, 254, 0.2)', borderRadius: '16px', padding: '18px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '12px' }}>
@@ -166,11 +194,45 @@ export const LiveChatHub: React.FC<LiveChatHubProps> = ({
           </div>
           <div>
             <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#fff', fontWeight: '700' }}>Kênh Trò Chuyện 2 Chiều (Live Chat Hub)</h3>
-            <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>Hội thoại thời gian thực giữa Cử chỉ tay ⇄ Tiếng nói & Chữ viết</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+              <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>Hội thoại thời gian thực giữa Cử chỉ tay ⇄ Tiếng nói & Chữ viết</span>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: 'rgba(0,242,254,0.12)', border: '1px solid #00f2fe', borderRadius: '10px', padding: '2px 8px', fontSize: '0.72rem', color: '#00f2fe', fontWeight: '700' }}>
+                <span>🔑 Mã Phòng: {roomId}</span>
+                <button
+                  onClick={() => {
+                    const newRoom = prompt('Nhập Mã Phòng Chat Riêng (Ví dụ: PTIT-2026):', roomId);
+                    if (newRoom && newRoom.trim()) {
+                      onRoomChange(newRoom.trim().toUpperCase());
+                    }
+                  }}
+                  style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '0.7rem', textDecoration: 'underline', padding: 0 }}
+                >
+                  (Đổi Mã Phòng)
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {onClearChat && (
+            <button
+              onClick={onClearChat}
+              className="btn btn-secondary btn-small"
+              style={{ fontSize: '0.78rem', padding: '6px 10px', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.3)' }}
+            >
+              🗑️ Xóa Lịch Sử
+            </button>
+          )}
+
+          <button
+            onClick={exportChatLog}
+            className="btn btn-secondary btn-small"
+            style={{ fontSize: '0.78rem', padding: '6px 10px', color: '#00f2fe', border: '1px solid rgba(0, 242, 254, 0.3)' }}
+          >
+            📥 Xuất Nhật Ký (.TXT)
+          </button>
+
           <button
             onClick={toggleSpeechRecognition}
             className={`btn btn-small ${isListening ? 'btn-danger animate-pulse' : 'btn-primary'}`}
@@ -213,7 +275,7 @@ export const LiveChatHub: React.FC<LiveChatHubProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
                       <span style={{ fontSize: '0.72rem', fontWeight: '700', color: isDeaf ? 'var(--color-primary)' : '#60a5fa', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         {isDeaf ? <Hand size={12} /> : <User size={12} />}
-                        {isDeaf ? 'Tôi (Cử chỉ / Nhập câu)' : 'Đối Phương (Từ xa)'}
+                        {msg.senderName ? msg.senderName : (isDeaf ? 'Người Khiếm Thính (Ký hiệu)' : 'Người Tiếng Nói')}
                       </span>
                       <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)' }}>
                         {typeof msg.timestamp === 'number'

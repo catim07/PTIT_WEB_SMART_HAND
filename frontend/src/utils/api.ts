@@ -1,6 +1,36 @@
-import { type GestureSample, type GestureTemplate, type RecognitionStats, type SystemSettings } from '../types';
+import { type GestureSample, type GestureTemplate, type RecognitionStats, type SystemSettings, type AuthUser, type LoginCredentials, type RegisterData } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+export async function loginUser(credentials: LoginCredentials): Promise<AuthUser> {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credentials),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Đăng nhập thất bại!');
+  return data;
+}
+
+export async function registerUser(regData: RegisterData): Promise<AuthUser> {
+  const res = await fetch(`${API_BASE}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(regData),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Đăng ký thất bại!');
+  return data;
+}
+
+export async function getMe(token: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/auth/me`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error('Phiên đăng nhập hết hạn!');
+  return res.json();
+}
 
 export async function fetchSettings(): Promise<SystemSettings> {
   // Return default values as they are now processed client-side and via WebSocket thresholds
@@ -34,12 +64,12 @@ export async function fetchSamples(): Promise<GestureSample[]> {
   }));
 }
 
-export async function addSample(sample: GestureSample): Promise<any> {
+export async function addSample(sample: GestureSample, userId?: string): Promise<any> {
   const res = await fetch(`${API_BASE}/api/gestures/samples`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      userId: '00000000-0000-0000-0000-000000000000',
+      userId: userId || '00000000-0000-0000-0000-000000000000',
       label: sample.label,
       landmarksSequence: sample.landmarksSequence
     }),
@@ -161,4 +191,34 @@ export async function fetchTrends(): Promise<any> {
   const res = await fetch(`${API_BASE}/api/logs/trends`);
   if (!res.ok) throw new Error('Failed to fetch trends');
   return res.json();
+}
+
+export async function fetchChatHistory(roomId: string = 'SẢNH_CHUNG'): Promise<any[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/chat/history?roomId=${encodeURIComponent(roomId)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.map((item: any) => ({
+      id: item.id,
+      sender: 'OTHER',
+      senderName: item.senderName,
+      senderRole: item.senderRole,
+      text: item.text,
+      signKeyword: item.signKeyword,
+      timestamp: item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Vừa xong'
+    }));
+  } catch (err) {
+    console.warn('Lỗi lấy lịch sử chat từ backend:', err);
+    return [];
+  }
+}
+
+export async function clearChatHistory(roomId: string = 'SẢNH_CHUNG'): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/chat/history?roomId=${encodeURIComponent(roomId)}`, {
+      method: 'DELETE'
+    });
+  } catch (err) {
+    console.warn('Lỗi xóa lịch sử chat:', err);
+  }
 }

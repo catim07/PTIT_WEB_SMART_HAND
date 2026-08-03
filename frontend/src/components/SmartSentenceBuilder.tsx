@@ -49,6 +49,8 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
 
     // NLP Rule-based grammar transformation templates for Vietnamese Sign Language (VSL -> Natural Sentence)
     if (upper.length === 1) {
+      if (upper[0] === 'CHUU_P' || upper[0] === 'PTIT') return 'Em chào Thầy! Nhóm sinh viên PTIT xin kính trình bày báo cáo đồ án hệ thống SignLink AI.';
+      if (upper[0] === 'CHUU_T' || upper[0] === 'THAY_CO') return 'Chúng em xin chân thành cảm ơn Thầy và Hội đồng chấm đồ án đã lắng nghe!';
       if (upper[0] === 'HELLO' || upper[0] === 'XIN_CHAO') return 'Xin chào bạn!';
       if (upper[0] === 'SOS') return 'Cảnh báo khẩn cấp! Tôi đang cần hỗ trợ ngay lập tức!';
       if (upper[0] === 'UONG_NUOC') return 'Cho tôi xin một cốc nước uống.';

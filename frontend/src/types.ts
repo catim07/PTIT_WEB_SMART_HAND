@@ -43,3 +43,23 @@ export interface SystemSettings {
   knnK: number;
   minConfidence: number;
 }
+
+export interface AuthUser {
+  token: string;
+  userId: string;
+  email: string;
+  fullName: string;
+  role: 'ADMIN' | 'USER';
+}
+
+export interface LoginCredentials {
+  email: string;
+  password: string;
+}
+
+export interface RegisterData {
+  fullName: string;
+  email: string;
+  password: string;
+  role: 'ADMIN' | 'USER';
+}

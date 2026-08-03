@@ -22,6 +22,12 @@ public class DatabaseSeeder implements CommandLineRunner {
     private UserProfileRepository userProfileRepository;
 
     @Autowired
+    private com.signlink.backend.repository.UserAccountRepository userAccountRepository;
+
+    @Autowired
+    private AuthService authService;
+
+    @Autowired
     private GesturePrototypeRepository gesturePrototypeRepository;
 
     @Autowired
@@ -40,6 +46,30 @@ public class DatabaseSeeder implements CommandLineRunner {
             defaultUser.setHabits("{\"preferredHand\":\"RIGHT\",\"alertSound\":true}");
             userProfileRepository.save(defaultUser);
             System.out.println(">>> Seeded default user profile.");
+        }
+
+        // Seed Default Admin Account
+        if (!userAccountRepository.existsByEmail("admin@signlink.vn")) {
+            com.signlink.backend.model.UserAccount admin = new com.signlink.backend.model.UserAccount(
+                "admin@signlink.vn",
+                authService.hashPassword("admin123"),
+                "Quản Trị Viên (Admin)",
+                "ADMIN"
+            );
+            userAccountRepository.save(admin);
+            System.out.println(">>> Seeded default Admin account: admin@signlink.vn");
+        }
+
+        // Seed Default User Account
+        if (!userAccountRepository.existsByEmail("user@signlink.vn")) {
+            com.signlink.backend.model.UserAccount user = new com.signlink.backend.model.UserAccount(
+                "user@signlink.vn",
+                authService.hashPassword("user123"),
+                "Thành Phạm (Sinh Viên)",
+                "USER"
+            );
+            userAccountRepository.save(user);
+            System.out.println(">>> Seeded default User account: user@signlink.vn");
         }
 
         // 2. Seed Rich Dataset of Common Gestures if missing

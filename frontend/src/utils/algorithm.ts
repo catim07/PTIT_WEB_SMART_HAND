@@ -452,9 +452,11 @@ export function countExtendedFingers(handLandmarks: Landmark[]): { count: number
   const isRingOpen = getDistance3D(ringTip, wrist) > getDistance3D(handLandmarks[14], wrist) * 1.12;
   const isPinkyOpen = getDistance3D(pinkyTip, wrist) > getDistance3D(handLandmarks[18], wrist) * 1.12;
 
-  // 1. BAN_TIM (Finger Heart 🫰): Thumb Tip (4) and Index Tip (8) pinched close (<0.08 in 3D) while Middle/Ring/Pinky are folded
+  // 1. BAN_TIM (Finger Heart 🫰): Thumb Tip (4) and Index Tip (8) pinched close (<0.085 in 3D) while Index is extended outward (not folded deep in fist)
   const thumbIndexDist = getDistance3D(thumbTip, indexTip);
-  if (thumbIndexDist < 0.085 && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+  const indexWristDist = getDistance3D(indexTip, wrist);
+  const indexPipDist = getDistance3D(handLandmarks[6], wrist);
+  if (thumbIndexDist < 0.085 && indexWristDist > indexPipDist * 0.95 && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
     return { count: 2, label: 'BAN_TIM', details: 'BAN_TIM (Bắn Tim 🫰)' };
   }
 
@@ -483,8 +485,9 @@ export function countExtendedFingers(handLandmarks: Landmark[]): { count: number
     return { count: 0, label: 'CHUU_A', details: 'CHUU_A (Chữ A)' };
   }
 
-  // 6. LETTER_B (Chữ B): 4 fingers extended straight up together + Thumb tucked across palm
-  if (isIndexOpen && isMiddleOpen && isRingOpen && isPinkyOpen && !isThumbOpen) {
+  // 6. LETTER_B (Chữ B): 4 fingers extended straight up together + Thumb folded TIGHTLY across palm center (MCP 9)
+  const thumbPalmCenterDist = getDistance3D(thumbTip, handLandmarks[9]);
+  if (isIndexOpen && isMiddleOpen && isRingOpen && isPinkyOpen && !isThumbOpen && thumbPalmCenterDist < 0.11) {
     return { count: 4, label: 'CHUU_B', details: 'CHUU_B (Chữ B)' };
   }
 
@@ -529,12 +532,23 @@ export function countExtendedFingers(handLandmarks: Landmark[]): { count: number
     return { count: 2, label: 'CHUU_L', details: 'CHUU_L (Chữ L)' };
   }
 
-  // 14. LETTER_M (Chữ M): 3 fingers (Index, Middle, Ring) pointing DOWN over thumb
+  // 14. LETTER_P (Chữ P - Biểu tượng PTIT): Index finger pointing DOWN/FORWARD + Thumb touching middle finger
+  if (isIndexOpen && indexTip.y > handLandmarks[5].y && !isRingOpen && !isPinkyOpen) {
+    return { count: 2, label: 'CHUU_P', details: 'CHUU_P (Chữ P - PTIT 🎓)' };
+  }
+
+  // 15. LETTER_T (Chữ T - Thầy Cô): Thumb tucked under index finger
+  const indexMcp = handLandmarks[5];
+  if (getDistance3D(thumbTip, indexMcp) < 0.08 && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+    return { count: 1, label: 'CHUU_T', details: 'CHUU_T (Chữ T - Thầy Cô 👨‍🏫)' };
+  }
+
+  // 16. LETTER_M (Chữ M): 3 fingers (Index, Middle, Ring) pointing DOWN over thumb
   if (indexTip.y > wrist.y && middleTip.y > wrist.y && ringTip.y > wrist.y && pinkyTip.y <= wrist.y) {
     return { count: 3, label: 'CHUU_M', details: 'CHUU_M (Chữ M)' };
   }
 
-  // 15. LETTER_N (Chữ N): 2 fingers (Index, Middle) pointing DOWN over thumb
+  // 17. LETTER_N (Chữ N): 2 fingers (Index, Middle) pointing DOWN over thumb
   if (indexTip.y > wrist.y && middleTip.y > wrist.y && ringTip.y <= wrist.y) {
     return { count: 2, label: 'CHUU_N', details: 'CHUU_N (Chữ N)' };
   }
@@ -544,14 +558,14 @@ export function countExtendedFingers(handLandmarks: Landmark[]): { count: number
     return { count: 0, label: 'CHUU_O', details: 'CHUU_O (Chữ O)' };
   }
 
-  // 17. LETTER_U (Chữ U): Index & Middle extended UP touching together
+  // 17. LETTER_U (Chữ U): Index & Middle extended UP touching very close (<0.045)
   const indexMiddleDist = getDistance3D(indexTip, middleTip);
-  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && indexMiddleDist < 0.055) {
+  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && indexMiddleDist < 0.045) {
     return { count: 2, label: 'CHUU_U', details: 'CHUU_U (Chữ U)' };
   }
 
-  // 18. LETTER_V (Chữ V): Index & Middle extended UP spread in V-shape
-  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && indexMiddleDist >= 0.055) {
+  // 18. LETTER_V (Chữ V): Index & Middle extended UP in WIDE V-shape (indexMiddleDist > 0.095)
+  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && indexMiddleDist > 0.095) {
     return { count: 2, label: 'CHUU_V', details: 'CHUU_V (Chữ V)' };
   }
 
@@ -563,6 +577,31 @@ export function countExtendedFingers(handLandmarks: Landmark[]): { count: number
   // 20. LETTER_Y (Chữ Y): Thumb & Pinky extended out (Hang Loose / Shaka)
   if (isThumbOpen && isPinkyOpen && !isIndexOpen && !isMiddleOpen && !isRingOpen) {
     return { count: 2, label: 'CHUU_Y', details: 'CHUU_Y (Chữ Y)' };
+  }
+
+  // 21. LETTER_K (Chữ K): Index UP + Middle forward/angled
+  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && getDistance3D(thumbTip, handLandmarks[9]) < 0.12) {
+    return { count: 2, label: 'CHUU_K', details: 'CHUU_K (Chữ K)' };
+  }
+
+  // 22. LETTER_Q (Chữ Q): Index & Thumb pointing DOWN forming a hook
+  if (indexTip.y > handLandmarks[5].y && isThumbOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+    return { count: 2, label: 'CHUU_Q', details: 'CHUU_Q (Chữ Q)' };
+  }
+
+  // 23. LETTER_R (Chữ R): Index crossed over Middle finger
+  if (isIndexOpen && isMiddleOpen && !isRingOpen && !isPinkyOpen && getDistance3D(indexTip, middleTip) < 0.035) {
+    return { count: 2, label: 'CHUU_R', details: 'CHUU_R (Chữ R)' };
+  }
+
+  // 24. Closed Fist (Nắm Đấm / Nắm Tay): All 5 fingers folded
+  if (!isIndexOpen && !isMiddleOpen && !isRingOpen && !isPinkyOpen && !isThumbOpen) {
+    return { count: 0, label: 'SO_0', details: 'SO_0 (Nắm Tay)' };
+  }
+
+  // 25. LETTER_X (Chữ X): Index finger bent into a hook shape
+  if (!isMiddleOpen && !isRingOpen && !isPinkyOpen && getDistance3D(indexTip, wrist) < getDistance3D(handLandmarks[6], wrist)) {
+    return { count: 1, label: 'CHUU_X', details: 'CHUU_X (Chữ X)' };
   }
 
   let count = 0;
@@ -624,6 +663,18 @@ export function detectDualHandGesture(leftHand: Landmark[], rightHand: Landmark[
   // 3. AN_COM_2T (Ăn Cơm 2 Tay 🍚): Left and right hands close near center
   if (wristDist < 0.22 && getDistance3D(rightIndex, rightThumb) < 0.09) {
     return { label: 'AN_COM_2T', details: 'AN_COM_2T (Ăn Cơm 2 Tay 🍚)' };
+  }
+
+  // 4. Dual-Hand Finger Count Sum (Số 6 -> Số 10): Sum extended fingers on both hands
+  const leftFingers = countExtendedFingers(leftHand).count;
+  const rightFingers = countExtendedFingers(rightHand).count;
+  const totalFingers = leftFingers + rightFingers;
+
+  if (totalFingers >= 6) {
+    return {
+      label: `SO_${totalFingers}`,
+      details: `SO_${totalFingers} (${totalFingers} Ngón - Số ${totalFingers} 🙌)`
+    };
   }
 
   return null;

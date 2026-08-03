@@ -19,13 +19,59 @@ import { ControlPanel } from './components/ControlPanel';
 import { SmartSentenceBuilder } from './components/SmartSentenceBuilder';
 import { QuickCommunicationCards } from './components/QuickCommunicationCards';
 import { LiveChatHub, type ChatMessage } from './components/LiveChatHub';
+import { AuthModal } from './components/AuthModal';
+import { UserSettingsModal, type UserPreferences } from './components/UserSettingsModal';
 
-import { type Landmark, type GestureSample, type GestureTemplate, type SystemSettings, type RecognitionStats } from './types';
-import { extractFeatures, countExtendedFingers, resetEMAFilter } from './utils/algorithm';
+import { type Landmark, type GestureSample, type GestureTemplate, type SystemSettings, type RecognitionStats, type AuthUser } from './types';
+import { extractFeatures, countExtendedFingers, resetEMAFilter, detectDualHandGesture } from './utils/algorithm';
 import { drawHandSkeleton } from './utils/drawing';
 import * as api from './utils/api';
 
 function App() {
+  // --- Auth State ---
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    const saved = localStorage.getItem('signlink_user');
+    return saved ? JSON.parse(saved) : {
+      token: 'default_admin_token',
+      userId: 'admin_id',
+      email: 'admin@signlink.vn',
+      fullName: 'Quản Trị Viên (Admin)',
+      role: 'ADMIN'
+    };
+  });
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+
+  // --- User Preferences State ---
+  const [userPreferences, setUserPreferences] = useState<UserPreferences>(() => {
+    const saved = localStorage.getItem('signlink_user_prefs');
+    return saved ? JSON.parse(saved) : {
+      speechRate: 1.0,
+      speechPitch: 1.0,
+      preferredHand: 'BOTH',
+      lockFrameThreshold: 8,
+      enableChimeSound: true,
+      autoSpeakOnLock: true,
+    };
+  });
+  const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+
+  // --- Live Chat Room State ---
+  const [activeRoomId, setActiveRoomId] = useState<string>('SẢNH_CHUNG');
+
+  useEffect(() => {
+    async function loadRoomHistory() {
+      const history = await api.fetchChatHistory(activeRoomId);
+      setMessages(history);
+    }
+    loadRoomHistory();
+  }, [activeRoomId]);
+
+  const handleRoomChange = async (newRoomId: string) => {
+    setActiveRoomId(newRoomId);
+    const history = await api.fetchChatHistory(newRoomId);
+    setMessages(history);
+  };
+
   // --- Core State ---
   const [samples, setSamples] = useState<GestureSample[]>([]);
   const [templates, setTemplates] = useState<GestureTemplate[]>([]);
@@ -83,6 +129,7 @@ function App() {
   // Smart 2-Way Live Chat State
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [mainViewTab, setMainViewTab] = useState<'WORKSPACE' | 'LIVE_CHAT'>('WORKSPACE');
+  const [disabledLabels, setDisabledLabels] = useState<Set<string>>(new Set());
   
   // Correction modal state
   const [showCorrectionModal, setShowCorrectionModal] = useState<boolean>(false);
@@ -275,6 +322,8 @@ function App() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'CHAT_MESSAGE') {
+            const incomingRoomId = data.roomId || 'SẢNH_CHUNG';
+            if (incomingRoomId !== activeRoomId) return;
             const senderRole = data.senderRole || 'Đối Phương';
             const text = data.text;
             if (text) {
@@ -283,7 +332,10 @@ function App() {
                 {
                   id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
                   sender: 'OTHER',
-                  text: `[${senderRole}]: ${text}`,
+                  senderName: data.sender || senderRole,
+                  senderRole: data.senderRole || 'USER',
+                  text: text,
+                  signKeyword: data.signKeyword,
                   timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 },
               ]);
@@ -361,7 +413,7 @@ function App() {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'vi-VN';
-        utterance.rate = 1.15;
+        utterance.rate = userPreferences.speechRate || 1.0;
         window.speechSynthesis.speak(utterance);
       } catch (e) {
         console.warn('Speech synthesis error:', e);
@@ -371,9 +423,12 @@ function App() {
 
   const addChatMessage = (text: string, sender: 'DEAF' | 'HEARING', signKeyword?: string) => {
     if (!text || !text.trim()) return;
+    const senderName = currentUser ? `${currentUser.fullName} (${currentUser.role === 'ADMIN' ? '👑 Admin' : '👤 User'})` : (sender === 'DEAF' ? 'Người Khiếm Thính' : 'Người Tiếng Nói');
     const msgObj: ChatMessage = {
       id: Date.now().toString(),
       sender: sender === 'DEAF' ? 'ME' : 'OTHER',
+      senderName,
+      senderRole: currentUser?.role || 'USER',
       text: text.trim(),
       signKeyword,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -385,8 +440,10 @@ function App() {
       wsRef.current.send(JSON.stringify({
         type: 'CHAT_MESSAGE',
         text: text.trim(),
-        sender: sender === 'DEAF' ? 'Người Khiếm Thính (Ký hiệu)' : 'Người Bình Thường (Tiếng nói)',
+        sender: senderName,
+        senderRole: currentUser?.role || 'USER',
         signKeyword,
+        roomId: activeRoomId,
       }));
     }
   };
@@ -514,7 +571,23 @@ function App() {
     hasActiveHandRef.current = true;
     setActiveLandmarks(activeHand);
 
-    const fingerInfo = countExtendedFingers(activeHand);
+    let fingerInfo: { count: number; label: string; details: string };
+
+    if (leftHand && leftHand.length === 21 && rightHand && rightHand.length === 21) {
+      const dualResult = detectDualHandGesture(leftHand, rightHand);
+      if (dualResult) {
+        fingerInfo = { count: 10, label: dualResult.label, details: dualResult.details };
+      } else {
+        fingerInfo = countExtendedFingers(activeHand);
+      }
+    } else {
+      fingerInfo = countExtendedFingers(activeHand);
+    }
+
+    if (disabledLabels.has(fingerInfo.label.toUpperCase())) {
+      fingerInfo = { count: 0, label: '', details: 'KHÔNG PHÁT HIỆN TAY' };
+    }
+
     const { featureVector } = extractFeatures(activeHand, pose);
     setActiveFeatureVector(featureVector);
 
@@ -526,8 +599,8 @@ function App() {
     // Ignore raw finger count heuristics (SO_0..SO_5) for sentence auto-appending
     if (fingerInfo.label && !fingerInfo.label.startsWith('SO_')) {
       if (activeGestureLabelRef.current === fingerInfo.label) {
-        gestureStableCounterRef.current += 1;
-        if (gestureStableCounterRef.current === 8) {
+        const lockLimit = userPreferences.lockFrameThreshold || 8;
+        if (gestureStableCounterRef.current === lockLimit) {
           tryAppendWordToSentence(fingerInfo.label);
         }
       } else {
@@ -629,7 +702,7 @@ function App() {
     };
 
     try {
-      await api.addSample(sample);
+      await api.addSample(sample, currentUser?.userId);
       burstFeaturesBufferRef.current = [];
       burstLandmarksBufferRef.current = [];
       setRecordingLabel('');
@@ -655,7 +728,7 @@ function App() {
 
     setLoading(true);
     try {
-      await api.addSample(sample);
+      await api.addSample(sample, currentUser?.userId);
       await loadData();
     } catch (err) {
       console.error(err);
@@ -673,9 +746,15 @@ function App() {
   };
 
   const handleDeleteGesture = async (label: string) => {
+    if (currentUser?.role !== 'ADMIN') {
+      alert('⚠️ Quyền truy cập bị từ chối: Thao tác xóa bộ nhớ AI yêu cầu tài khoản QUẢN TRỊ VIÊN (ADMIN). Vui lòng chuyển sang tài khoản Admin!');
+      setShowAuthModal(true);
+      return;
+    }
     setLoading(true);
     try {
       await api.deleteGesture(label);
+      setDisabledLabels((prev) => new Set(prev).add(label.toUpperCase()));
       await loadData();
     } catch (err) {
       console.error(err);
@@ -685,6 +764,11 @@ function App() {
   };
 
   const handleTriggerOptimize = async () => {
+    if (currentUser?.role !== 'ADMIN') {
+      alert('⚠️ Quyền truy cập bị từ chối: Thao tác tối ưu hóa K-Means yêu cầu tài khoản QUẢN TRỊ VIÊN (ADMIN). Vui lòng chuyển sang tài khoản Admin!');
+      setShowAuthModal(true);
+      return;
+    }
     setLoading(true);
     try {
       await api.optimizeTemplates();
@@ -942,6 +1026,59 @@ function App() {
               </>
             )}
           </div>
+
+          {/* User Account Auth Badge */}
+          {currentUser ? (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 12px',
+              borderRadius: '20px',
+              background: currentUser.role === 'ADMIN' ? 'rgba(245, 158, 11, 0.18)' : 'rgba(16, 185, 129, 0.18)',
+              border: currentUser.role === 'ADMIN' ? '1px solid #f59e0b' : '1px solid #10b981',
+              color: '#fff',
+              fontSize: '0.82rem',
+              fontWeight: '700',
+              marginLeft: '8px'
+            }}>
+              <span>{currentUser.role === 'ADMIN' ? '👑 Admin' : '👤 User'}: {currentUser.fullName}</span>
+              <button
+                onClick={() => {
+                  localStorage.removeItem('signlink_user');
+                  setCurrentUser(null);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'rgba(255,255,255,0.7)',
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  marginLeft: '4px',
+                  textDecoration: 'underline'
+                }}
+              >
+                (Đổi)
+              </button>
+            </div>
+          ) : (
+            <button
+              className="btn btn-primary btn-small"
+              onClick={() => setShowAuthModal(true)}
+              style={{ fontWeight: 'bold', marginLeft: '8px' }}
+            >
+              🔑 Đăng Nhập / Đăng Ký
+            </button>
+          )}
+
+          {/* User Settings Modal Trigger */}
+          <button
+            className="btn btn-secondary btn-small"
+            onClick={() => setShowSettingsModal(true)}
+            style={{ marginLeft: '8px', fontWeight: 'bold', border: '1px solid rgba(0, 242, 254, 0.4)' }}
+          >
+            ⚙️ Cấu Hình User
+          </button>
         </div>
       </header>
 
@@ -950,8 +1087,14 @@ function App() {
         <main style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
           <LiveChatHub
             messages={messages}
+            roomId={activeRoomId}
+            onRoomChange={(newRoomId) => handleRoomChange(newRoomId)}
             onSendMessage={(text, sender, keyword) => addChatMessage(text, sender, keyword)}
             onSpeak={speakText}
+            onClearChat={async () => {
+              await api.clearChatHistory(activeRoomId);
+              setMessages([]);
+            }}
             templates={templates}
           />
         </main>
@@ -1715,6 +1858,28 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={(user) => {
+          setCurrentUser(user);
+          localStorage.setItem('signlink_user', JSON.stringify(user));
+          setShowAuthModal(false);
+        }}
+      />
+
+      {/* User Preferences Settings Modal */}
+      <UserSettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        preferences={userPreferences}
+        onSavePreferences={(newPrefs) => {
+          setUserPreferences(newPrefs);
+          localStorage.setItem('signlink_user_prefs', JSON.stringify(newPrefs));
+        }}
+      />
     </div>
   );
 }
