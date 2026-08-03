@@ -291,18 +291,21 @@ export function predictGestureKNN(
 
   if (distances.length === 0) return null;
 
-  // BƯỚC 2: Sắp xếp các mẫu theo khoảng cách từ nhỏ nhất tới lớn nhất
+  // BƯỚC 2: Sắp xếp các mẫu và lấy K hàng xóm gần nhất (KNN)
   distances.sort((a, b) => a.dist - b.dist);
-  const topNeighbor = distances[0];
+  const topNeighbors = distances.slice(0, Math.min(k, distances.length));
+  const topNeighbor = topNeighbors[0];
 
-  // BƯỚC 3: Nếu khoảng cách nhỏ hơn ngưỡng nhiễu (< 2.0), chốt kết quả nhận diện
+  // BƯỚC 3: Đánh giá ngưỡng tin cậy tối thiểu minConfidence
   if (topNeighbor.dist < 2.0) {
-    const confidence = Math.max(0.60, Math.min(0.99, 1 - topNeighbor.dist / 3.0));
-    return {
-      label: topNeighbor.label,
-      confidence,
-      details: `${topNeighbor.label} (KNN AI Mẫu - ${Math.round(confidence * 100)}%)`
-    };
+    const confidence = Math.max(minConfidence, Math.min(0.99, 1 - topNeighbor.dist / 3.0));
+    if (confidence >= minConfidence) {
+      return {
+        label: topNeighbor.label,
+        confidence,
+        details: `${topNeighbor.label} (KNN AI Mẫu - ${Math.round(confidence * 100)}%)`
+      };
+    }
   }
 
   return null;

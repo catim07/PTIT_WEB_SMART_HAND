@@ -794,6 +794,9 @@ function App() {
           featureVectors: sample.featureVectors,
           landmarksSequence: sample.landmarksSequence,
           centroid: sample.featureVectors[0] || [],
+          sampleCount: 1,
+          isPrototype: true,
+          updatedAt: Date.now(),
         },
       ]);
       burstFeaturesBufferRef.current = [];
@@ -835,6 +838,9 @@ function App() {
           featureVectors: sample.featureVectors,
           landmarksSequence: sample.landmarksSequence,
           centroid: sample.featureVectors[0] || [],
+          sampleCount: 1,
+          isPrototype: true,
+          updatedAt: Date.now(),
         },
       ]);
       alert(`🎉 Đã lưu thành công mẫu cử chỉ '${label.toUpperCase()}' vào bộ nhớ AI local!`);
@@ -995,6 +1001,9 @@ function App() {
             featureVectors: newSample.featureVectors,
             landmarksSequence: newSample.landmarksSequence,
             centroid: newSample.featureVectors[0] || [],
+            sampleCount: 1,
+            isPrototype: true,
+            updatedAt: Date.now(),
           },
         ]);
         alert(`🎉 AI đã ghi nhận mẫu hiệu chỉnh cho '${correctLabel}'! Lần giơ tay tiếp theo AI sẽ nhận diện đúng cử chỉ này.`);
