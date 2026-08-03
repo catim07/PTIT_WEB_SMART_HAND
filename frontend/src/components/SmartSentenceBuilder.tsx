@@ -120,6 +120,28 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
     }
   };
 
+  const getContextSuggestions = (words: string[]): string[] => {
+    if (!words || words.length === 0) {
+      return ['XIN_CHAO', 'CAM_ON', 'UONG_NUOC', 'AN_COM', 'SOS'];
+    }
+    const lastWord = words[words.length - 1].toUpperCase();
+    if (lastWord === 'XIN_CHAO' || lastWord === 'HELLO') {
+      return ['BẠN', 'RẤT_VUI', 'CẢM_ƠN', 'KHỎE_KHÔNG'];
+    }
+    if (lastWord === 'TOI' || lastWord === 'TÔI') {
+      return ['MUỐN', 'CẦN', 'THÍCH', 'YÊU', 'UONG_NUOC', 'AN_COM'];
+    }
+    if (lastWord === 'UONG_NUOC') {
+      return ['CỐC_NƯỚC', 'CĂN_TIN', 'CẢM_ƠN'];
+    }
+    if (lastWord === 'BAN_TIM' || lastWord === 'LIKE') {
+      return ['CẢM_ƠN', 'RẤT_THÍCH', 'YÊU_THƯƠNG', 'OK'];
+    }
+    return ['CẢM_ƠN', 'BẠN', 'GIÚP', 'CẦN', 'OK'];
+  };
+
+  const dynamicSuggestions = getContextSuggestions(sentence);
+
   return (
     <div className="card" style={{ background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(0, 242, 254, 0.2)', borderRadius: '16px', padding: '18px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
@@ -235,7 +257,7 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
         </div>
       )}
 
-      {/* Smart Predictive Context Pills (Markov Suggestions) */}
+      {/* Smart Predictive Context Pills (Markov Intelligence) */}
       <div style={{ background: 'rgba(0, 0, 0, 0.2)', padding: '10px 12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'rgba(255,255,255,0.7)', marginBottom: '8px' }}>
           <Lightbulb size={14} style={{ color: '#f59e0b' }} />
@@ -243,38 +265,26 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-          {candidates && candidates.length > 0 ? (
-            candidates.map((cand, idx) => {
-              const cleanCand = cand.split(' ')[0];
-              return (
-                <button
-                  key={idx}
-                  onClick={() => onAddWord(cleanCand)}
-                  className="btn btn-secondary btn-small"
-                  style={{
-                    fontSize: '0.78rem',
-                    padding: '4px 10px',
-                    borderRadius: '16px',
-                    borderColor: 'rgba(0, 242, 254, 0.4)',
-                    color: 'var(--color-primary)',
-                    background: 'rgba(0, 242, 254, 0.06)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <Plus size={12} /> {cleanCand}
-                </button>
-              );
-            })
-          ) : (
-            <>
-              <button onClick={() => onAddWord('MUỐN')} className="btn btn-secondary btn-small" style={{ fontSize: '0.78rem', padding: '4px 10px', borderRadius: '16px', color: 'rgba(255,255,255,0.8)' }}>+ MUỐN</button>
-              <button onClick={() => onAddWord('CẦN')} className="btn btn-secondary btn-small" style={{ fontSize: '0.78rem', padding: '4px 10px', borderRadius: '16px', color: 'rgba(255,255,255,0.8)' }}>+ CẦN</button>
-              <button onClick={() => onAddWord('THÍCH')} className="btn btn-secondary btn-small" style={{ fontSize: '0.78rem', padding: '4px 10px', borderRadius: '16px', color: 'rgba(255,255,255,0.8)' }}>+ THÍCH</button>
-              <button onClick={() => onAddWord('GIÚP')} className="btn btn-secondary btn-small" style={{ fontSize: '0.78rem', padding: '4px 10px', borderRadius: '16px', color: 'rgba(255,255,255,0.8)' }}>+ GIÚP</button>
-            </>
-          )}
+          {dynamicSuggestions.map((cand, idx) => (
+            <button
+              key={idx}
+              onClick={() => onAddWord(cand)}
+              className="btn btn-secondary btn-small"
+              style={{
+                fontSize: '0.78rem',
+                padding: '4px 10px',
+                borderRadius: '16px',
+                borderColor: 'rgba(0, 242, 254, 0.4)',
+                color: 'var(--color-primary)',
+                background: 'rgba(0, 242, 254, 0.06)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <Plus size={12} /> {cand}
+            </button>
+          ))}
         </div>
       </div>
     </div>

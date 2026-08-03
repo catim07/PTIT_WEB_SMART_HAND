@@ -306,25 +306,11 @@ function App() {
             setTrajectoryMatch(data.trajectoryMatch || 0);
             setRawFeatures(data.features || null);
 
-            // Streamlined zero-latency continuous sentence builder
-            const minConf = settings?.minConfidence || 0.60;
-            if (
-              avgConfidence >= minConf &&
-              finalLabel !== 'ĐANG PHÂN TÍCH...' && 
-              finalLabel !== 'CHƯA CÓ DỮ LIỆU' && 
-              finalLabel !== 'KHÔNG PHÁT HIỆN TAY' &&
-              finalLabel !== 'KHÔNG XÁC ĐỊNH' &&
-              !finalLabel.startsWith('SO_')
-            ) {
-              if (finalLabel === 'SOS') {
-                if (!sosActive) {
-                  setSosActive(true);
-                  setSentence(prev => [...prev, 'SOS']);
-                  speakText("Phát hiện tín hiệu khẩn cấp!");
-                }
-              } else {
-                tryAppendWordToSentence(finalLabel);
-              }
+            // Handle SOS Emergency Alert signal from backend
+            if (finalLabel === 'SOS' && avgConfidence >= 0.80 && !sosActive) {
+              setSosActive(true);
+              setSentence(prev => [...prev, 'SOS']);
+              speakText("Phát hiện tín hiệu khẩn cấp!");
             } else {
               lockInTargetLabelRef.current = null;
               lockInCounterRef.current = 0;
