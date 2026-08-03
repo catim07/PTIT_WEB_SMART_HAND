@@ -120,7 +120,8 @@ function App() {
   const activeGestureLabelRef = useRef<string>('');
   const gestureStableCounterRef = useRef<number>(0);
   const lastSpokenTextRef = useRef<string>('');
-  const lastSpokenTimeRef = useRef<number>(0);
+  const lastSpokenTimeRef = useRef<number>(0);  const hasActiveHandRef = useRef<boolean>(false);
+  const [isSentencePaused, setIsSentencePaused] = useState<boolean>(false);
 
   // Helper to check if two gesture labels are semantic synonyms
   const isSynonymGesture = (w1: string, w2: string) => {
@@ -133,28 +134,25 @@ function App() {
 
   // Streamlined instant sentence builder for real-time continuous gesture stream
   const tryAppendWordToSentence = useCallback((rawLabel: string) => {
+    if (!hasActiveHandRef.current || isSentencePaused) return;
     if (
       !rawLabel || 
       rawLabel === 'ĐANG PHÂN TÍCH...' || 
       rawLabel === 'KHÔNG PHÁT HIỆN TAY' || 
       rawLabel === 'CHƯA CÓ DỮ LIỆU' ||
-      rawLabel === 'KHÔNG XÁC ĐỊNH' ||
       rawLabel.startsWith('SO_')
     ) {
       return;
     }
 
-    let cleanLabel = rawLabel.split(' ')[0].split('(')[0].trim().toUpperCase();
-    if (cleanLabel.startsWith('CHUU_')) {
-      cleanLabel = cleanLabel.replace('CHUU_', '');
-    }
-    if (!cleanLabel || cleanLabel.startsWith('SO_')) return;
+    const cleanLabel = rawLabel.split(' ')[0].split('(')[0].trim().toUpperCase();
+    if (!cleanLabel) return;
 
     const now = Date.now();
     const last = lastAppendedWordRef.current;
 
-    // Avoid duplicate rapid append if same word or synonym appended < 2000ms ago
-    if (isSynonymGesture(last.label, cleanLabel) && now - last.time < 2000) {
+    // Avoid duplicate rapid append if same word or synonym appended < 2500ms ago
+    if (isSynonymGesture(last.label, cleanLabel) && now - last.time < 2500) {
       return;
     }
 
@@ -162,7 +160,7 @@ function App() {
 
     setSentence((prev) => {
       const lastInSentence = prev.length > 0 ? prev[prev.length - 1] : '';
-      if (prev.length > 0 && isSynonymGesture(lastInSentence, cleanLabel) && now - last.time < 2000) {
+      if (prev.length > 0 && isSynonymGesture(lastInSentence, cleanLabel) && now - last.time < 2500) {
         return prev;
       }
       const updated = [...prev, cleanLabel];
@@ -176,7 +174,7 @@ function App() {
     });
 
     speakText(cleanLabel.toLowerCase());
-  }, []);
+  }, [isSentencePaused]);
 
   // Update recording reference
   useEffect(() => {
@@ -290,6 +288,7 @@ function App() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'PREDICTION') {
+            if (!hasActiveHandRef.current) return; // Strict guard: Ignore predictions if no hand in frame
             const finalLabel = data.predicted;
             const avgConfidence = data.confidence;
             const feedbackMsg = data.feedback;
@@ -502,6 +501,7 @@ function App() {
       return;
     }
 
+    hasActiveHandRef.current = true;
     setActiveLandmarks(activeHand);
 
     const fingerInfo = countExtendedFingers(activeHand);
@@ -512,12 +512,12 @@ function App() {
     setPrediction((prev) => (prev === fingerInfo.details ? prev : fingerInfo.details));
     setConfidence(0.88);
 
-    // 2. Hysteresis stability check: Require 3 consecutive stable frames (~90ms) before sentence lock-in
+    // 2. Hysteresis stability check: Require 8 consecutive stable frames (~250ms) before sentence lock-in
     // Ignore raw finger count heuristics (SO_0..SO_5) for sentence auto-appending
     if (fingerInfo.label && !fingerInfo.label.startsWith('SO_')) {
       if (activeGestureLabelRef.current === fingerInfo.label) {
         gestureStableCounterRef.current += 1;
-        if (gestureStableCounterRef.current === 3) {
+        if (gestureStableCounterRef.current === 8) {
           tryAppendWordToSentence(fingerInfo.label);
         }
       } else {
@@ -587,6 +587,7 @@ function App() {
   }, [sosActive]);
 
   const handleTrackingLost = useCallback(() => {
+    hasActiveHandRef.current = false;
     setActiveLandmarks(null);
     setActiveFeatureVector(null);
     setPrediction('KHÔNG PHÁT HIỆN TAY');
@@ -1095,6 +1096,24 @@ function App() {
               </div>
             )}
           </div>
+
+          {/* Smart AI Sentence Builder Component */}
+          <SmartSentenceBuilder
+            sentence={sentence}
+            onClear={() => setSentence([])}
+            onBackspace={() => setSentence((prev) => prev.slice(0, -1))}
+            onAddWord={(word) => tryAppendWordToSentence(word)}
+            onSpeak={speakText}
+            onSendToChat={(txt) => {
+              setMessages((prev) => [
+                ...prev,
+                { id: Date.now().toString(), sender: 'ME', text: txt, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+              ]);
+            }}
+            candidates={candidates.map((c) => c.split(' ')[0])}
+            isPaused={isSentencePaused}
+            onTogglePause={() => setIsSentencePaused((prev) => !prev)}
+          />
 
           {/* Developer Mode Panels */}
           {developerMode && (

@@ -7,7 +7,9 @@ import {
   Plus, 
   Wand2, 
   Send,
-  Lightbulb
+  Lightbulb,
+  Pause,
+  Play
 } from 'lucide-react';
 
 interface SmartSentenceBuilderProps {
@@ -18,6 +20,8 @@ interface SmartSentenceBuilderProps {
   onSpeak: (text: string) => void;
   onSendToChat?: (text: string) => void;
   candidates: string[];
+  isPaused?: boolean;
+  onTogglePause?: () => void;
 }
 
 export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
@@ -28,6 +32,8 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
   onSpeak,
   onSendToChat,
   candidates,
+  isPaused = false,
+  onTogglePause,
 }) => {
   const [naturalSentence, setNaturalSentence] = useState<string>('');
   const [autoSpeakEnabled] = useState<boolean>(true);
@@ -128,6 +134,23 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
         </div>
 
         <div style={{ display: 'flex', gap: '6px' }}>
+          {onTogglePause && (
+            <button 
+              className="btn btn-secondary btn-small" 
+              onClick={onTogglePause}
+              title={isPaused ? "Bấm để tiếp tục tự động ghép từ từ camera" : "Tạm dừng ghép từ mới để dễ sửa câu"}
+              style={{
+                padding: '6px 10px',
+                fontSize: '0.8rem',
+                borderColor: isPaused ? '#f59e0b' : 'rgba(0, 242, 254, 0.4)',
+                color: isPaused ? '#f59e0b' : 'var(--color-primary)',
+                background: isPaused ? 'rgba(245, 158, 11, 0.15)' : 'rgba(0, 242, 254, 0.08)',
+                fontWeight: '600'
+              }}
+            >
+              {isPaused ? <Play size={14} /> : <Pause size={14} />} {isPaused ? 'Tiếp tục ghép' : 'Tạm dừng ghép'}
+            </button>
+          )}
           <button 
             className="btn btn-secondary btn-small" 
             onClick={onBackspace}
