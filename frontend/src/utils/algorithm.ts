@@ -522,22 +522,29 @@ export function countExtendedFingers(
   const isRingOpen = getDistance3D(ringTip, wrist) > getDistance3D(handLandmarks[14], wrist) * 1.12;
   const isPinkyOpen = getDistance3D(pinkyTip, wrist) > getDistance3D(handLandmarks[18], wrist) * 1.12;
 
-  const thumbIndexDist = getDistance3D(thumbTip, indexTip);
+  const thumbIndexDist = getDistance3D(thumbTip, wrist ? thumbTip : indexTip);
+  const thumbIndexTipDist = getDistance3D(thumbTip, indexTip);
   const indexWristDist = getDistance3D(indexTip, wrist);
   const indexPipDist = getDistance3D(handLandmarks[6], wrist);
 
-  // BƯỚC 2: Kiểm tra Quy tắc Cử chỉ "UỐNG NƯỚC" (Bàn tay khum ly nước nâng gần vùng Miệng <= 35cm)
-  const isCurvedGlassFist = thumbIndexDist >= 0.04 && thumbIndexDist <= 0.28 && thumbTip.y < wrist.y;
+  // BƯỚC 2: Kiểm tra Quy tắc Cử chỉ "UỐNG NƯỚC" (Bàn tay khum ly nước nâng lên gần vùng Miệng/Mặt)
+  const isCurvedGlassFist = thumbIndexTipDist >= 0.02 && thumbIndexTipDist <= 0.35 && thumbTip.y < wrist.y;
+  let isNearFace = false;
   if (poseLandmarks && poseLandmarks[0]) {
     const nose = poseLandmarks[0];
     const distToNose = Math.hypot(thumbTip.x - nose.x, thumbTip.y - nose.y);
-    if (distToNose <= 0.35 && isCurvedGlassFist) {
-      return { count: 1, label: 'UONG_NUOC', details: 'UONG_NUOC (Uống Nước 🥤)' };
-    }
+    if (distToNose <= 0.45) isNearFace = true;
+  } else {
+    // Fallback when pose landmarks are not present: Hand is raised high in upper area (thumbTip.y < 0.65)
+    if (thumbTip.y < 0.65 && wrist.y < 0.85) isNearFace = true;
+  }
+
+  if (isNearFace && isCurvedGlassFist && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+    return { count: 1, label: 'UONG_NUOC', details: 'UONG_NUOC (Uống Nước 🥤)' };
   }
 
   // BƯỚC 3: Kiểm tra Quy tắc Cử chỉ "BẮN TIM" (Đầu ngón cái & ngón trỏ chạm sát nhau < 0.085)
-  if (thumbIndexDist < 0.085 && indexWristDist > indexPipDist * 0.95 && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
+  if (thumbIndexTipDist < 0.085 && indexWristDist > indexPipDist * 0.95 && !isMiddleOpen && !isRingOpen && !isPinkyOpen) {
     return { count: 2, label: 'BAN_TIM', details: 'BAN_TIM (Bắn Tim 🫰)' };
   }
 

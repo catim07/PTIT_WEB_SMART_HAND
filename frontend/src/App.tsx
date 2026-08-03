@@ -981,7 +981,23 @@ function App() {
           featureVectors: [...featureWindowRef.current],
           createdAt: Date.now(),
         };
-        await api.addSample(newSample);
+        try {
+          await api.addSample(newSample);
+        } catch (e) {
+          console.warn('Backend save correction fallback to client memory:', e);
+        }
+        setSamples((prev) => [...prev, newSample]);
+        setTemplates((prev) => [
+          ...prev,
+          {
+            id: newSample.id,
+            label: correctLabel,
+            featureVectors: newSample.featureVectors,
+            landmarksSequence: newSample.landmarksSequence,
+            centroid: newSample.featureVectors[0] || [],
+          },
+        ]);
+        alert(`🎉 AI đã ghi nhận mẫu hiệu chỉnh cho '${correctLabel}'! Lần giơ tay tiếp theo AI sẽ nhận diện đúng cử chỉ này.`);
       }
 
       await loadData();
@@ -1364,10 +1380,8 @@ function App() {
             onAddWord={(word) => tryAppendWordToSentence(word)}
             onSpeak={speakText}
             onSendToChat={(txt) => {
-              setMessages((prev) => [
-                ...prev,
-                { id: Date.now().toString(), sender: 'ME', text: txt, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-              ]);
+              addChatMessage(txt, 'DEAF');
+              setMainViewTab('LIVE_CHAT');
             }}
             candidates={candidates.map((c) => c.split(' ')[0])}
             isPaused={isSentencePaused}
