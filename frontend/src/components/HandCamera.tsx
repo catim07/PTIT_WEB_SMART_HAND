@@ -35,11 +35,11 @@ const FRAME_INTERVAL_MS = 33; // 30 FPS
  */
 const getUserMediaWithTimeout = (
   constraints: MediaStreamConstraints,
-  timeoutMs = 5000
+  timeoutMs = 1500
 ): Promise<MediaStream> => {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error('HARDWARE_TIMEOUT: Thời gian phản hồi của thiết bị Camera vượt quá 5 giây.'));
+      reject(new Error('HARDWARE_TIMEOUT: Thời gian phản hồi của thiết bị Camera vượt quá 1.5 giây.'));
     }, timeoutMs);
 
     navigator.mediaDevices
@@ -705,9 +705,29 @@ export const HandCamera: React.FC<HandCameraProps> = ({
 
       {/* Loading Overlay */}
       {modelLoading && !isSimulating && !errorType && (
-        <div className="camera-placeholder">
-          <Loader2 className="animate-spin" size={48} style={{ color: 'var(--color-primary)' }} />
-          <p style={{ marginTop: '12px' }}>Đang kết nối Camera Thật...</p>
+        <div className="camera-placeholder" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+          <Loader2 className="animate-spin" size={42} style={{ color: 'var(--color-primary)' }} />
+          <p style={{ margin: 0, fontSize: '0.95rem', color: '#fff', fontWeight: '600' }}>Đang kết nối Camera Thật...</p>
+
+          <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+            <button
+              className="btn btn-primary btn-small"
+              onClick={handleForceRetryCamera}
+              style={{ fontSize: '0.78rem', padding: '6px 12px' }}
+            >
+              <Zap size={13} /> ⚡ Ép Thử Lại Ngay
+            </button>
+            <button
+              className="btn btn-secondary btn-small"
+              onClick={() => {
+                setModelLoading(false);
+                setIsSimulating(true);
+              }}
+              style={{ fontSize: '0.78rem', padding: '6px 12px', borderColor: '#f59e0b', color: '#f59e0b' }}
+            >
+              <Play size={13} /> 🎬 Bật Mô Phỏng 3D
+            </button>
+          </div>
         </div>
       )}
 

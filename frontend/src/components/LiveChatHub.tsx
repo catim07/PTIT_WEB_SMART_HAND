@@ -15,10 +15,10 @@ import { drawHandSkeleton } from '../utils/drawing';
 
 export interface ChatMessage {
   id: string;
-  sender: 'DEAF' | 'HEARING';
+  sender: 'DEAF' | 'HEARING' | 'ME' | 'OTHER';
   text: string;
   signKeyword?: string;
-  timestamp: number;
+  timestamp: number | string;
 }
 
 interface LiveChatHubProps {
@@ -191,53 +191,58 @@ export const LiveChatHub: React.FC<LiveChatHubProps> = ({
                 💬 Bắt đầu cuộc trò chuyện! Người khiếm thính thực hiện cử chỉ tay hoặc người bình thường bấm mic nói.
               </div>
             ) : (
-              messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  style={{
-                    alignSelf: msg.sender === 'DEAF' ? 'flex-start' : 'flex-end',
-                    maxWidth: '80%',
-                    background: msg.sender === 'DEAF' 
-                      ? 'linear-gradient(135deg, rgba(0, 242, 254, 0.15), rgba(15, 23, 42, 0.7))'
-                      : 'linear-gradient(135deg, rgba(79, 172, 254, 0.2), rgba(30, 41, 59, 0.8))',
-                    border: msg.sender === 'DEAF'
-                      ? '1px solid rgba(0, 242, 254, 0.3)'
-                      : '1px solid rgba(79, 172, 254, 0.3)',
-                    borderRadius: msg.sender === 'DEAF' ? '14px 14px 14px 2px' : '14px 14px 2px 14px',
-                    padding: '10px 14px',
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '0.72rem', fontWeight: '700', color: msg.sender === 'DEAF' ? 'var(--color-primary)' : '#60a5fa', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      {msg.sender === 'DEAF' ? <Hand size={12} /> : <User size={12} />}
-                      {msg.sender === 'DEAF' ? 'Người Khiếm Thính (Cử chỉ tay)' : 'Người Bình Thường (Tiếng nói)'}
-                    </span>
-                    <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)' }}>
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
+              messages.map((msg) => {
+                const isDeaf = msg.sender === 'DEAF' || msg.sender === 'ME';
+                return (
+                  <div
+                    key={msg.id}
+                    style={{
+                      alignSelf: isDeaf ? 'flex-start' : 'flex-end',
+                      maxWidth: '80%',
+                      background: isDeaf 
+                        ? 'linear-gradient(135deg, rgba(0, 242, 254, 0.15), rgba(15, 23, 42, 0.7))'
+                        : 'linear-gradient(135deg, rgba(79, 172, 254, 0.2), rgba(30, 41, 59, 0.8))',
+                      border: isDeaf
+                        ? '1px solid rgba(0, 242, 254, 0.3)'
+                        : '1px solid rgba(79, 172, 254, 0.3)',
+                      borderRadius: isDeaf ? '14px 14px 14px 2px' : '14px 14px 2px 14px',
+                      padding: '10px 14px',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '0.72rem', fontWeight: '700', color: isDeaf ? 'var(--color-primary)' : '#60a5fa', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {isDeaf ? <Hand size={12} /> : <User size={12} />}
+                        {isDeaf ? 'Tôi (Cử chỉ / Nhập câu)' : 'Đối Phương (Từ xa)'}
+                      </span>
+                      <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.4)' }}>
+                        {typeof msg.timestamp === 'number'
+                          ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          : (msg.timestamp || 'Mới đây')}
+                      </span>
+                    </div>
 
-                  <p style={{ margin: 0, fontSize: '0.92rem', color: '#fff', lineHeight: '1.4' }}>{msg.text}</p>
+                    <p style={{ margin: 0, fontSize: '0.92rem', color: '#fff', lineHeight: '1.4' }}>{msg.text}</p>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                    <button
-                      onClick={() => onSpeak(msg.text)}
-                      style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: 0, fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '3px' }}
-                    >
-                      <Volume2 size={12} /> Đọc nói
-                    </button>
-                    {msg.signKeyword && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', paddingTop: '4px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                       <button
-                        onClick={() => playAvatarAnimation(msg.signKeyword!)}
-                        style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', padding: 0, fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '3px' }}
+                        onClick={() => onSpeak(msg.text)}
+                        style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: 0, fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '3px' }}
                       >
-                        <Play size={12} /> Minh họa Cử chỉ 3D ({msg.signKeyword})
+                        <Volume2 size={12} /> Đọc nói
                       </button>
-                    )}
+                      {msg.signKeyword && (
+                        <button
+                          onClick={() => playAvatarAnimation(msg.signKeyword!)}
+                          style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', padding: 0, fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '3px' }}
+                        >
+                          <Play size={12} /> Minh họa Cử chỉ 3D ({msg.signKeyword})
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
             <div ref={chatEndRef} />
           </div>

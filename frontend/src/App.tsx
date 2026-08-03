@@ -81,21 +81,8 @@ function App() {
   const [sosActive, setSosActive] = useState<boolean>(false);
   
   // Smart 2-Way Live Chat State
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [mainViewTab, setMainViewTab] = useState<'WORKSPACE' | 'LIVE_CHAT'>('WORKSPACE');
-
-  const addChatMessage = useCallback((text: string, sender: 'DEAF' | 'HEARING', signKeyword?: string) => {
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-        sender,
-        text,
-        signKeyword,
-        timestamp: Date.now(),
-      },
-    ]);
-  }, []);
   
   // Correction modal state
   const [showCorrectionModal, setShowCorrectionModal] = useState<boolean>(false);
@@ -287,7 +274,22 @@ function App() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === 'PREDICTION') {
+          if (data.type === 'CHAT_MESSAGE') {
+            const senderRole = data.senderRole || 'Đối Phương';
+            const text = data.text;
+            if (text) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
+                  sender: 'OTHER',
+                  text: `[${senderRole}]: ${text}`,
+                  timestamp: data.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                },
+              ]);
+              speakText(text);
+            }
+          } else if (data.type === 'PREDICTION') {
             if (!hasActiveHandRef.current) return; // Strict guard: Ignore predictions if no hand in frame
             const finalLabel = data.predicted;
             const avgConfidence = data.confidence;
@@ -365,6 +367,28 @@ function App() {
         console.warn('Speech synthesis error:', e);
       }
     }, 0);
+  };
+
+  const addChatMessage = (text: string, sender: 'DEAF' | 'HEARING', signKeyword?: string) => {
+    if (!text || !text.trim()) return;
+    const msgObj: ChatMessage = {
+      id: Date.now().toString(),
+      sender: sender === 'DEAF' ? 'ME' : 'OTHER',
+      text: text.trim(),
+      signKeyword,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    setMessages((prev) => [...prev, msgObj]);
+
+    // Broadcast real-time remote WebSocket message to all other connected clients
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'CHAT_MESSAGE',
+        text: text.trim(),
+        sender: sender === 'DEAF' ? 'Người Khiếm Thính (Ký hiệu)' : 'Người Bình Thường (Tiếng nói)',
+        signKeyword,
+      }));
+    }
   };
 
   // --- Speech-to-Text Recognition Setup (Two-way communication) ---
@@ -925,7 +949,7 @@ function App() {
       {mainViewTab === 'LIVE_CHAT' ? (
         <main style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
           <LiveChatHub
-            messages={chatMessages}
+            messages={messages}
             onSendMessage={(text, sender, keyword) => addChatMessage(text, sender, keyword)}
             onSpeak={speakText}
             templates={templates}

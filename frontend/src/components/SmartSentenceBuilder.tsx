@@ -92,9 +92,33 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
     return joined.charAt(0).toUpperCase() + joined.slice(1) + '.';
   };
 
+  // Web Audio API Audio Chime Feedback (Zero external mp3 asset dependency)
+  const playRecognitionChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime); // A5 note
+      osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.1); // E6 note
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.15);
+    } catch (e) {}
+  };
+
   useEffect(() => {
     const formatted = formatNaturalSentence(sentence);
     setNaturalSentence(formatted);
+
+    if (sentence.length > 0) {
+      playRecognitionChime();
+    }
 
     if (autoSpeakEnabled && formatted && sentence.length > 0) {
       // Small debounce before speaking
@@ -140,7 +164,9 @@ export const SmartSentenceBuilder: React.FC<SmartSentenceBuilderProps> = ({
     return ['CẢM_ƠN', 'BẠN', 'GIÚP', 'CẦN', 'OK'];
   };
 
-  const dynamicSuggestions = getContextSuggestions(sentence);
+  const dynamicSuggestions = candidates && candidates.length > 0 
+    ? Array.from(new Set([...candidates.map(c => c.split(' ')[0]), ...getContextSuggestions(sentence)]))
+    : getContextSuggestions(sentence);
 
   return (
     <div className="card" style={{ background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(12px)', border: '1px solid rgba(0, 242, 254, 0.2)', borderRadius: '16px', padding: '18px' }}>
